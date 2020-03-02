@@ -28,7 +28,7 @@ import (
 type Server struct {
 	Indexer  *indexer.Indexer
 	BookDir  string
-	CoverDir string
+	DataDir  string
 	NoCovers bool
 	Addr     string
 	Verbose  bool
@@ -38,8 +38,8 @@ type Server struct {
 }
 
 // NewServer creates a new BookBrowser server. It will not index the books automatically.
-func NewServer(addr, bookdir, coverdir, version string, verbose, nocovers bool) *Server {
-	i, err := indexer.New([]string{bookdir}, &coverdir, formats.GetExts())
+func NewServer(addr, bookdir, datadir, version string, verbose, nocovers bool) *Server {
+	i, err := indexer.New([]string{bookdir}, &datadir, formats.GetExts())
 	if err != nil {
 		panic(err)
 	}
@@ -53,7 +53,7 @@ func NewServer(addr, bookdir, coverdir, version string, verbose, nocovers bool) 
 		Indexer:  i,
 		BookDir:  bookdir,
 		Addr:     addr,
-		CoverDir: coverdir,
+		DataDir:  datadir,
 		NoCovers: nocovers,
 		Verbose:  verbose,
 		router:   httprouter.New(),
@@ -169,7 +169,7 @@ func (s *Server) initRouter() {
 	s.router.GET("/static/*filepath", func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 		http.FileServer(public.Box).ServeHTTP(w, req)
 	})
-	s.router.ServeFiles("/covers/*filepath", http.Dir(s.CoverDir))
+	s.router.ServeFiles("/covers/*filepath", http.Dir(s.DataDir))
 }
 
 func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {

@@ -18,18 +18,18 @@ import (
 )
 
 type Indexer struct {
-	Verbose   bool
-	Progress  float64
-	coverpath *string
-	paths     []string
-	exts      []string
-	booklist  booklist.BookList
-	mu        sync.Mutex
-	indMu     sync.Mutex
-	seen      *SeenCache
+	Verbose  bool
+	Progress float64
+	datapath *string
+	paths    []string
+	exts     []string
+	booklist booklist.BookList
+	mu       sync.Mutex
+	indMu    sync.Mutex
+	seen     *SeenCache
 }
 
-func New(paths []string, coverpath *string, exts []string) (*Indexer, error) {
+func New(paths []string, datapath *string, exts []string) (*Indexer, error) {
 	for i := range paths {
 		p, err := filepath.Abs(paths[i])
 		if err != nil {
@@ -39,15 +39,15 @@ func New(paths []string, coverpath *string, exts []string) (*Indexer, error) {
 	}
 
 	cp := (*string)(nil)
-	if coverpath != nil {
-		p, err := filepath.Abs(*coverpath)
+	if datapath != nil {
+		p, err := filepath.Abs(*datapath)
 		if err != nil {
 			return nil, errors.Wrap(err, "error resolving cover path")
 		}
 		cp = &p
 	}
 
-	return &Indexer{paths: paths, coverpath: cp, exts: exts, seen: NewSeenCache()}, nil
+	return &Indexer{paths: paths, datapath: cp, exts: exts, seen: NewSeenCache()}, nil
 }
 
 func (i *Indexer) Load() error {
@@ -56,7 +56,7 @@ func (i *Indexer) Load() error {
 
 	booklist := booklist.BookList{}
 
-	jsonFilename := filepath.Join(*i.coverpath, "index.json")
+	jsonFilename := filepath.Join(*i.datapath, "index.json")
 	f, err := os.Open(jsonFilename)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -95,8 +95,8 @@ func (i *Indexer) Save() error {
 	booklist := i.booklist
 	i.mu.Unlock()
 
-	tmpFilename := filepath.Join(*i.coverpath, ".index.json.tmp")
-	jsonFilename := filepath.Join(*i.coverpath, "index.json")
+	tmpFilename := filepath.Join(*i.datapath, ".index.json.tmp")
+	jsonFilename := filepath.Join(*i.datapath, "index.json")
 	f, err := os.Create(tmpFilename)
 	if err != nil {
 		f.Close()
@@ -241,9 +241,9 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 
 	b := bi.Book()
 	b.HasCover = false
-	if i.coverpath != nil && bi.HasCover() {
-		coverpath := filepath.Join(*i.coverpath, fmt.Sprintf("%s.jpg", b.ID()))
-		thumbpath := filepath.Join(*i.coverpath, fmt.Sprintf("%s_thumb.jpg", b.ID()))
+	if i.datapath != nil && bi.HasCover() {
+		coverpath := filepath.Join(*i.datapath, fmt.Sprintf("%s.jpg", b.ID()))
+		thumbpath := filepath.Join(*i.datapath, fmt.Sprintf("%s_thumb.jpg", b.ID()))
 
 		_, err := os.Stat(coverpath)
 		_, errt := os.Stat(thumbpath)

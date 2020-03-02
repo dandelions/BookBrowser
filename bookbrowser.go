@@ -31,13 +31,13 @@ func main() {
 		log.Fatalf("Fatal error: %s\n", err)
 	}
 
-	deftempdir, err := ioutil.TempDir("", "bookbrowser")
+	defdatadir, err := ioutil.TempDir("", "bookbrowser")
 	if err != nil {
-		deftempdir = filepath.Join(workdir, "_temp")
+		defdatadir = filepath.Join(workdir, "_temp")
 	}
 
 	bookdir := pflag.StringP("bookdir", "b", workdir, "the directory to load books from (must exist)")
-	tempdir := pflag.StringP("tempdir", "t", deftempdir, "the directory to store temp files such as cover thumbnails (created on start, deleted on exit unless already exists)")
+	datadir := pflag.StringP("datadir", "t", defdatadir, "the directory to store the database and cover thumbnails")
 	addr := pflag.StringP("addr", "a", ":8090", "the address to bind the server to ([IP]:PORT)")
 	nocovers := pflag.BoolP("nocovers", "n", false, "do not index covers")
 	help := pflag.BoolP("help", "h", false, "Show this help text")
@@ -59,7 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	noRemoveTempDir := false
+	removeDataDir := false
 
 	log.Printf("BookBrowser %s\n", curversion)
 
@@ -69,10 +69,10 @@ func main() {
 		}
 	}
 
-	if fi, err := os.Stat(*tempdir); err == nil || (fi != nil && fi.IsDir()) {
-		noRemoveTempDir = true
-		if *tempdir == deftempdir {
-			noRemoveTempDir = false
+	if fi, err := os.Stat(*datadir); err == nil || (fi != nil && fi.IsDir()) {
+		removeDataDir = false
+		if *datadir == defdatadir {
+			removeDataDir = true
 		}
 	}
 
@@ -81,24 +81,22 @@ func main() {
 		log.Fatalf("Error: could not resolve book directory %s: %v\n", *bookdir, err)
 	}
 
-	if _, err := os.Stat(*tempdir); os.IsNotExist(err) {
-		os.Mkdir(*tempdir, os.ModePerm)
+	if _, err := os.Stat(*datadir); os.IsNotExist(err) {
+		os.Mkdir(*datadir, os.ModePerm)
 	}
 
-	*tempdir, err = filepath.Abs(*tempdir)
+	*datadir, err = filepath.Abs(*datadir)
 	if err != nil {
-		log.Fatalf("Error: could not resolve temp directory %s: %v\n", *tempdir, err)
+		log.Fatalf("Error: could not resolve temp directory %s: %v\n", *datadir, err)
 	}
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		if noRemoveTempDir {
-			log.Println("Not removing temp dir because dir already existed at start")
-		} else {
-			log.Println("Cleaning up temp dir")
-			os.RemoveAll(*tempdir)
+		if removeDataDir {
+			log.Println("Removing temporary data directory")
+			os.RemoveAll(*datadir)
 		}
 		os.Exit(0)
 	}()
@@ -115,7 +113,7 @@ func main() {
 		}
 	}
 
-	s := server.NewServer(*addr, *bookdir, *tempdir, curversion, true, *nocovers)
+	s := server.NewServer(*addr, *bookdir, *datadir, curversion, true, *nocovers)
 	go func() {
 		s.LoadBookIndex()
 		s.RefreshBookIndex()
