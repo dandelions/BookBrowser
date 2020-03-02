@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,7 +19,7 @@ import (
 	"github.com/geek1011/BookBrowser/formats"
 	"github.com/geek1011/BookBrowser/indexer"
 	"github.com/geek1011/BookBrowser/public"
-	"github.com/geek1011/kepubify/kepub"
+	//"github.com/geek1011/kepubify/kepub"
 	"github.com/julienschmidt/httprouter"
 	"github.com/unrolled/render"
 )
@@ -101,7 +99,7 @@ func (s *Server) RefreshBookIndex() error {
 
 	err = s.Indexer.Save()
 	if err != nil {
-		log.Printf("Error saving index: %s",err)
+		log.Printf("Error saving index: %s", err)
 		return err
 	}
 
@@ -237,9 +235,11 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 	bid := p.ByName("filename")
 	bid = strings.Replace(strings.Replace(bid, filepath.Ext(bid), "", 1), ".kepub", "", -1)
 	iskepub := false
+	/*
 	if strings.HasSuffix(p.ByName("filename"), ".kepub.epub") {
 		iskepub = true
 	}
+	*/
 
 	for _, b := range s.Indexer.BookList() {
 		if b.ID() == bid {
@@ -266,7 +266,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 				if err != nil {
 					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
 				}
-			} else {
+			} /*else {
 				if b.FileType() != "epub" {
 					w.WriteHeader(http.StatusNotFound)
 					io.WriteString(w, "Not found")
@@ -302,7 +302,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 				if err != nil {
 					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
 				}
-			}
+			}*/
 			return
 		}
 	}
@@ -317,7 +317,7 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request, _ httprou
 		return a.Name < b.Name
 	})
 
-	pagination := NewPagination(r.URL.Query(),len(al))
+	pagination := NewPagination(r.URL.Query(), len(al))
 	al = al.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
 	s.render.HTML(w, http.StatusOK, "authors", map[string]interface{}{
@@ -327,8 +327,8 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request, _ httprou
 		"ShowSearch":       false,
 		"ShowViewSelector": true,
 		"Title":            "Authors",
-		"Authors":			al,
-		"Pagination":		pagination,
+		"Authors":          al,
+		"Pagination":       pagination,
 	})
 }
 
@@ -347,7 +347,7 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 		bl, _ = bl.SortBy("title-asc")
 		bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
 
-		pagination := NewPagination(r.URL.Query(),len(bl))
+		pagination := NewPagination(r.URL.Query(), len(bl))
 		bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
 		s.render.HTML(w, http.StatusOK, "author", map[string]interface{}{
@@ -358,7 +358,7 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 			"ShowViewSelector": true,
 			"Title":            aname,
 			"Books":            bl,
-			"Pagination":		pagination,
+			"Pagination":       pagination,
 		})
 		return
 	}
@@ -380,7 +380,7 @@ func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprou
 		return a.Name < b.Name
 	})
 
-	pagination := NewPagination(r.URL.Query(),len(seriess))
+	pagination := NewPagination(r.URL.Query(), len(seriess))
 	seriess = seriess.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
 	s.render.HTML(w, http.StatusOK, "seriess", map[string]interface{}{
@@ -390,8 +390,8 @@ func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprou
 		"ShowSearch":       false,
 		"ShowViewSelector": true,
 		"Title":            "Series",
-		"Series":			seriess,
-		"Pagination":		pagination,
+		"Series":           seriess,
+		"Pagination":       pagination,
 	})
 }
 
@@ -414,14 +414,13 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 		bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
 		*/
 
-
 		bl := s.Indexer.BookList().Filtered(func(book *booklist.Book) bool {
 			return book.Series != "" && book.SeriesID() == p.ByName("id")
 		}).Sorted(func(a, b *booklist.Book) bool {
 			return a.SeriesIndex < b.SeriesIndex
 		})
 
-		pagination := NewPagination(r.URL.Query(),len(bl))
+		pagination := NewPagination(r.URL.Query(), len(bl))
 		bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
 		s.render.HTML(w, http.StatusOK, "series", map[string]interface{}{
@@ -431,8 +430,8 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 			"ShowSearch":       false,
 			"ShowViewSelector": true,
 			"Title":            sname,
-			"Books":			bl,
-			"Pagination":		pagination,
+			"Books":            bl,
+			"Pagination":       pagination,
 		})
 		return
 	}
@@ -452,7 +451,7 @@ func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httproute
 	bl, _ := s.Indexer.BookList().SortBy("modified-desc")
 	bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
 
-	pagination := NewPagination(r.URL.Query(),len(bl))
+	pagination := NewPagination(r.URL.Query(), len(bl))
 	bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
 	s.render.HTML(w, http.StatusOK, "books", map[string]interface{}{
@@ -463,7 +462,7 @@ func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httproute
 		"ShowViewSelector": true,
 		"Title":            "",
 		"Books":            bl,
-		"Pagination":		pagination,
+		"Pagination":       pagination,
 	})
 }
 
@@ -509,7 +508,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprout
 		bl, _ = bl.SortBy("title-asc")
 		bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
 
-		pagination := NewPagination(r.URL.Query(),len(bl))
+		pagination := NewPagination(r.URL.Query(), len(bl))
 		bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
 		s.render.HTML(w, http.StatusOK, "search", map[string]interface{}{
@@ -521,7 +520,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprout
 			"Title":            "Search Results",
 			"Query":            q,
 			"Books":            bl,
-			"Pagination":		pagination,
+			"Pagination":       pagination,
 		})
 		return
 	}
