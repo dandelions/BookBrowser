@@ -6,40 +6,38 @@ import (
 	"html/template"
 	"io"
 	"log"
-	"math/rand"
-	"net/http"
+		"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
 	"strings"
-	"time"
-
-	"github.com/geek1011/BookBrowser/booklist"
-	"github.com/geek1011/BookBrowser/formats"
-	"github.com/geek1011/BookBrowser/indexer"
-	"github.com/geek1011/BookBrowser/public"
+			"github.com/sblinch/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/indexer"
+	"github.com/sblinch/BookBrowser/public"
 	//"github.com/geek1011/kepubify/kepub"
 	"github.com/julienschmidt/httprouter"
 	"github.com/unrolled/render"
+	"github.com/sblinch/BookBrowser/storage"
 )
 
 // Server is a BookBrowser server.
 type Server struct {
-	Indexer  *indexer.Indexer
-	BookDir  string
-	DataDir  string
-	NoCovers bool
-	Addr     string
-	Verbose  bool
-	router   *httprouter.Router
-	render   *render.Render
-	version  string
+	Indexer       *indexer.Indexer
+	BookDir       string
+	DataDir       string
+	NoCovers      bool
+	Addr          string
+	Verbose       bool
+	storage       *storage.Storage
+	router        *httprouter.Router
+	render        *render.Render
+	version       string
 }
 
 // NewServer creates a new BookBrowser server. It will not index the books automatically.
-func NewServer(addr, bookdir, datadir, version string, verbose, nocovers bool) *Server {
-	i, err := indexer.New([]string{bookdir}, &datadir, formats.GetExts())
+func NewServer(addr string, stor *storage.Storage, bookdir, datadir, version string, verbose, nocovers bool) *Server {
+	i, err := indexer.New([]string{bookdir}, stor, &datadir, formats.GetExts())
 	if err != nil {
 		panic(err)
 	}
@@ -50,14 +48,15 @@ func NewServer(addr, bookdir, datadir, version string, verbose, nocovers bool) *
 	}
 
 	s := &Server{
-		Indexer:  i,
-		BookDir:  bookdir,
-		Addr:     addr,
-		DataDir:  datadir,
-		NoCovers: nocovers,
-		Verbose:  verbose,
-		router:   httprouter.New(),
-		version:  version,
+		Indexer:       i,
+		BookDir:       bookdir,
+		Addr:          addr,
+		DataDir:       datadir,
+		NoCovers:      nocovers,
+		Verbose:       verbose,
+		storage:       stor,
+		router:        httprouter.New(),
+		version:       version,
 	}
 
 	s.initRender()
@@ -71,13 +70,6 @@ func (s *Server) printLog(format string, v ...interface{}) {
 	if s.Verbose {
 		log.Printf(format, v...)
 	}
-}
-
-func (s *Server) LoadBookIndex() error {
-	return s.Indexer.Load()
-}
-func (s *Server) SaveBookIndex() error {
-	return s.Indexer.Save()
 }
 
 // RefreshBookIndex refreshes the book index
@@ -96,12 +88,6 @@ func (s *Server) RefreshBookIndex() error {
 	}
 
 	debug.FreeOSMemory()
-
-	err = s.Indexer.Save()
-	if err != nil {
-		log.Printf("Error saving index: %s", err)
-		return err
-	}
 
 	return nil
 }
@@ -210,18 +196,22 @@ padding: 0;
 </head>
 <body>
 	`)
-	sbl := s.Indexer.BookList().Sorted(func(a, b *booklist.Book) bool {
-		return a.Title < b.Title
-	})
+	sbl, err := s.storage.Books.QueryDeps(storage.NewQuery().SortedBy("title", true))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, "Error handling request")
+		return
+	}
+
 	for _, b := range sbl {
-		if b.Author != "" && b.Series != "" {
-			buf.WriteString(fmt.Sprintf("<a href=\"/download/%s.%s\">%s - %s - %s (%v)</a>", b.ID(), b.FileType(), b.Title, b.Author, b.Series, b.SeriesIndex))
-		} else if b.Author != "" && b.Series != "" {
-			buf.WriteString(fmt.Sprintf("<a href=\"/download/%s.%s\">%s - %s</a>", b.ID(), b.FileType(), b.Title, b.Author))
-		} else if b.Author == "" && b.Series != "" {
-			buf.WriteString(fmt.Sprintf("<a href=\"/download/%s.%s\">%s - %s (%v)</a>", b.ID(), b.FileType(), b.Title, b.Series, b.SeriesIndex))
-		} else if b.Author == "" && b.Series == "" {
-			buf.WriteString(fmt.Sprintf("<a href=\"/download/%s.%s\">%s</a>", b.ID(), b.FileType(), b.Title))
+		if b.Author.Name != "" && b.Series.Name != "" {
+			buf.WriteString(fmt.Sprintf("<a href=\"/download/%d.%s\">%s - %s - %s (%v)</a>", b.ID, b.FileType(), b.Title, b.Author.Name, b.Series.Name, b.SeriesIndex))
+		} else if b.Author.Name != "" && b.Series.Name == "" {
+			buf.WriteString(fmt.Sprintf("<a href=\"/download/%d.%s\">%s - %s</a>", b.ID, b.FileType(), b.Title, b.Author.Name))
+		} else if b.Author.Name == "" && b.Series.Name != "" {
+			buf.WriteString(fmt.Sprintf("<a href=\"/download/%d.%s\">%s - %s (%v)</a>", b.ID, b.FileType(), b.Title, b.Series.Name, b.SeriesIndex))
+		} else if b.Author.Name == "" && b.Series.Name == "" {
+			buf.WriteString(fmt.Sprintf("<a href=\"/download/%d.%s\">%s</a>", b.ID, b.FileType(), b.Title))
 		}
 	}
 	buf.WriteString(`
@@ -241,84 +231,100 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 	}
 	*/
 
-	for _, b := range s.Indexer.BookList() {
-		if b.ID() == bid {
-			if !iskepub {
-				rd, err := os.Open(b.FilePath)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					io.WriteString(w, "Error handling request")
-					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
-					return
-				}
-
-				w.Header().Set("Content-Disposition", `attachment; filename="`+regexp.MustCompile("[[:^ascii:]]").ReplaceAllString(b.Title, "_")+`.`+b.FileType()+`"`)
-				switch b.FileType() {
-				case "epub":
-					w.Header().Set("Content-Type", "application/epub+zip")
-				case "pdf":
-					w.Header().Set("Content-Type", "application/pdf")
-				default:
-					w.Header().Set("Content-Type", "application/octet-stream")
-				}
-				_, err = io.Copy(w, rd)
-				rd.Close()
-				if err != nil {
-					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
-				}
-			} /*else {
-				if b.FileType() != "epub" {
-					w.WriteHeader(http.StatusNotFound)
-					io.WriteString(w, "Not found")
-					return
-				}
-				td, err := ioutil.TempDir("", "kepubify")
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
-					io.WriteString(w, "Internal Server Error")
-					return
-				}
-				defer os.RemoveAll(td)
-				kepubf := filepath.Join(td, bid+".kepub.epub")
-				err = (&kepub.Converter{}).Convert(b.FilePath, kepubf)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
-					io.WriteString(w, "Internal Server Error - Error converting book")
-					return
-				}
-				rd, err := os.Open(kepubf)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					io.WriteString(w, "Error handling request")
-					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
-					return
-				}
-				w.Header().Set("Content-Disposition", "attachment; filename="+url.PathEscape(b.Title)+".kepub.epub")
-				w.Header().Set("Content-Type", "application/epub+zip")
-				_, err = io.Copy(w, rd)
-				rd.Close()
-				if err != nil {
-					log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
-				}
-			}*/
-			return
-		}
+	bl, err := s.storage.Books.Query(storage.NewQuery().Filtered("id", bid, true))
+	if err != nil || len(bl) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, "Could not find book with id "+bid)
+		return
 	}
 
-	w.WriteHeader(http.StatusNotFound)
-	io.WriteString(w, "Could not find book with id "+bid)
+	b := bl[0]
+	if !iskepub {
+		rd, err := os.Open(b.FilePath)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, "Error handling request")
+			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
+			return
+		}
+
+		w.Header().Set("Content-Disposition", `attachment; filename="`+regexp.MustCompile("[[:^ascii:]]").ReplaceAllString(b.Title, "_")+`.`+b.FileType()+`"`)
+		switch b.FileType() {
+		case "epub":
+			w.Header().Set("Content-Type", "application/epub+zip")
+		case "pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+		default:
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
+		_, err = io.Copy(w, rd)
+		rd.Close()
+		if err != nil {
+			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
+		}
+	} /*else {
+		if b.FileType() != "epub" {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, "Not found")
+			return
+		}
+		td, err := ioutil.TempDir("", "kepubify")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
+			io.WriteString(w, "Internal Server Error")
+			return
+		}
+		defer os.RemoveAll(td)
+		kepubf := filepath.Join(td, bid+".kepub.epub")
+		err = (&kepub.Converter{}).Convert(b.FilePath, kepubf)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
+			io.WriteString(w, "Internal Server Error - Error converting book")
+			return
+		}
+		rd, err := os.Open(kepubf)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, "Error handling request")
+			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
+			return
+		}
+		w.Header().Set("Content-Disposition", "attachment; filename="+url.PathEscape(b.Title)+".kepub.epub")
+		w.Header().Set("Content-Type", "application/epub+zip")
+		_, err = io.Copy(w, rd)
+		rd.Close()
+		if err != nil {
+			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
+		}
+	}*/
+}
+
+func (s *Server) internalError(w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusInternalServerError)
+	io.WriteString(w, "Error handling request")
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 
-	al := s.Indexer.BookList().Authors().Sorted(func(a, b struct{ Name, ID string }) bool {
-		return a.Name < b.Name
-	})
+	query := storage.NewQuery().SortedBy("name", true)
+	totalAuthors, err := s.storage.Authors.Count(query)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
 
-	pagination := NewPagination(r.URL.Query(), len(al))
-	al = al.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+	pagination := NewPagination(r.URL.Query(), totalAuthors)
+	al, err := s.storage.Authors.Query(query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+
 
 	s.render.HTML(w, http.StatusOK, "authors", map[string]interface{}{
 		"CurVersion":       s.version,
@@ -332,31 +338,52 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request, _ httprou
 	})
 }
 
+func parseUserSort(s string, defaultKey string, defaultAscending bool) (key string, ascending bool) {
+	if len(s) == 0 {
+		return defaultKey, defaultAscending
+	}
+	pieces := strings.SplitN(s,"-",2)
+	if len(pieces) != 2 || pieces[0] == "" {
+		return defaultKey, defaultAscending
+	} else {
+		return pieces[0], pieces[1] == "asc"
+	}
+}
 func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	aname := ""
-	for _, author := range *s.Indexer.BookList().Authors() {
-		if author.ID == p.ByName("id") {
-			aname = author.Name
-		}
+	aid := p.ByName("id")
+	authors, err := s.storage.Authors.Query(storage.NewQuery().Filtered("id",aid,true))
+	if err != nil {
+		s.internalError(w, fmt.Errorf("query-authors: %v",err))
+		return
 	}
 
-	if aname != "" {
-		bl := s.Indexer.BookList().Filtered(func(book *booklist.Book) bool {
-			return book.Author != "" && book.AuthorID() == p.ByName("id")
-		})
-		bl, _ = bl.SortBy("title-asc")
-		bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
+	if len(authors)> 0 {
+		author := authors[0]
+		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"),"title", true)
 
-		pagination := NewPagination(r.URL.Query(), len(bl))
-		bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+		query := storage.NewQuery().Filtered("authorid",aid,true).SortedBy(userSortKey,userSortAsc)
+		total, err := s.storage.Books.Count(query)
+		if err != nil {
+			s.internalError(w,fmt.Errorf("count-books: %v",err))
+			return
+		}
+
+		pagination := NewPagination(r.URL.Query(), total)
+		query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+
+		bl, err := s.storage.Books.QueryDeps(query)
+		if err != nil {
+			s.internalError(w,fmt.Errorf("query-books: %v",err))
+			return
+		}
 
 		s.render.HTML(w, http.StatusOK, "author", map[string]interface{}{
 			"CurVersion":       s.version,
-			"PageTitle":        aname,
+			"PageTitle":        author.Name,
 			"ShowBar":          true,
 			"ShowSearch":       false,
 			"ShowViewSelector": true,
-			"Title":            aname,
+			"Title":            author.Name,
 			"Books":            bl,
 			"Pagination":       pagination,
 		})
@@ -375,13 +402,21 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 }
 
 func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	query := storage.NewQuery().SortedBy("name",true)
+	total, err := s.storage.Series.Count(query)
+	if err != nil {
+		s.internalError(w,err)
+		return
+	}
 
-	seriess := s.Indexer.BookList().Series().Sorted(func(a, b struct{ Name, ID string }) bool {
-		return a.Name < b.Name
-	})
+	pagination := NewPagination(r.URL.Query(), total)
+	query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
-	pagination := NewPagination(r.URL.Query(), len(seriess))
-	seriess = seriess.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+	seriess, err := s.storage.Series.Query(query)
+	if err != nil {
+		s.internalError(w,err)
+		return
+	}
 
 	s.render.HTML(w, http.StatusOK, "seriess", map[string]interface{}{
 		"CurVersion":       s.version,
@@ -396,40 +431,40 @@ func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprou
 }
 
 func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	sname := ""
-	for _, series := range *s.Indexer.BookList().Series() {
-		if series.ID == p.ByName("id") {
-			sname = series.Name
-		}
+	sid := p.ByName("id")
+
+	seriess, err := s.storage.Series.Query(storage.NewQuery().Filtered("id",sid,true))
+	if err != nil {
+		s.internalError(w,err)
+		return
 	}
 
-	if sname != "" {
-		/* the bl variable created here was unused by the original s.render.HTML() call below and seems to be
-			dead code... @geek1011, safe to remove this?
+	if len(seriess) > 0 {
+		series := seriess[0]
 
-		bl := s.Indexer.BookList().Filtered(func(book *booklist.Book) bool {
-			return book.Series != "" && book.SeriesID() == p.ByName("id")
-		})
-		bl, _ = bl.SortBy("seriesindex-asc")
-		bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
-		*/
+		query := storage.NewQuery().Filtered("seriesid",sid,true).SortedBy("seriesindex",true)
+		total, err := s.storage.Books.Count(query)
+		if err != nil {
+			s.internalError(w,err)
+			return
+		}
 
-		bl := s.Indexer.BookList().Filtered(func(book *booklist.Book) bool {
-			return book.Series != "" && book.SeriesID() == p.ByName("id")
-		}).Sorted(func(a, b *booklist.Book) bool {
-			return a.SeriesIndex < b.SeriesIndex
-		})
+		pagination := NewPagination(r.URL.Query(), total)
+		query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
 
-		pagination := NewPagination(r.URL.Query(), len(bl))
-		bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+		bl, err := s.storage.Books.QueryDeps(query)
+		if err != nil {
+			s.internalError(w,err)
+			return
+		}
 
 		s.render.HTML(w, http.StatusOK, "series", map[string]interface{}{
 			"CurVersion":       s.version,
-			"PageTitle":        sname,
+			"PageTitle":        series.Name,
 			"ShowBar":          true,
 			"ShowSearch":       false,
 			"ShowViewSelector": true,
-			"Title":            sname,
+			"Title":            series.Name,
 			"Books":            bl,
 			"Pagination":       pagination,
 		})
@@ -448,11 +483,23 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 }
 
 func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	bl, _ := s.Indexer.BookList().SortBy("modified-desc")
-	bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
+	userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"),"filemtime",false)
 
-	pagination := NewPagination(r.URL.Query(), len(bl))
-	bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+	query := storage.NewQuery().SortedBy(userSortKey,userSortAsc)
+	total, err := s.storage.Books.Count(query)
+	if err != nil {
+		s.internalError(w,err)
+		return
+	}
+
+	pagination := NewPagination(r.URL.Query(), total)
+	query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+
+	bl, err := s.storage.Books.QueryDeps(query)
+	if err != nil {
+		s.internalError(w,err)
+		return
+	}
 
 	s.render.HTML(w, http.StatusOK, "books", map[string]interface{}{
 		"CurVersion":       s.version,
@@ -467,19 +514,25 @@ func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httproute
 }
 
 func (s *Server) handleBook(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	for _, b := range s.Indexer.BookList() {
-		if b.ID() == p.ByName("id") {
-			s.render.HTML(w, http.StatusOK, "book", map[string]interface{}{
-				"CurVersion":       s.version,
-				"PageTitle":        b.Title,
-				"ShowBar":          false,
-				"ShowSearch":       false,
-				"ShowViewSelector": false,
-				"Title":            "",
-				"Book":             b,
-			})
-			return
-		}
+	bid := p.ByName("id")
+	bl, err := s.storage.Books.QueryDeps(storage.NewQuery().Filtered("id",bid, true))
+	if err != nil {
+		s.internalError(w,err)
+		return
+	}
+
+	if len(bl) > 0 {
+		b := bl[0]
+		s.render.HTML(w, http.StatusOK, "book", map[string]interface{}{
+			"CurVersion":       s.version,
+			"PageTitle":        b.Title,
+			"ShowBar":          false,
+			"ShowSearch":       false,
+			"ShowViewSelector": false,
+			"Title":            "",
+			"Book":             b,
+		})
+		return
 	}
 
 	s.render.HTML(w, http.StatusNotFound, "notfound", map[string]interface{}{
@@ -495,21 +548,23 @@ func (s *Server) handleBook(w http.ResponseWriter, r *http.Request, p httprouter
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	q := r.URL.Query().Get("q")
-	ql := strings.ToLower(q)
 
 	if len(q) != 0 {
-		bl := s.Indexer.BookList().Filtered(func(a *booklist.Book) bool {
-			matches := false
-			matches = matches || a.Author != "" && strings.Contains(strings.ToLower(a.Author), ql)
-			matches = matches || strings.Contains(strings.ToLower(a.Title), ql)
-			matches = matches || a.Series != "" && strings.Contains(strings.ToLower(a.Series), ql)
-			return matches
-		})
-		bl, _ = bl.SortBy("title-asc")
-		bl, _ = bl.SortBy(r.URL.Query().Get("sort"))
+		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"),"title",true)
 
-		pagination := NewPagination(r.URL.Query(), len(bl))
-		bl = bl.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+		query := storage.NewQuery().SortedBy(userSortKey,userSortAsc)
+		total, err := s.storage.Books.CountKeyword(q,query)
+		if err != nil {
+			s.internalError(w,err)
+			return
+		}
+
+		pagination := NewPagination(r.URL.Query(), total)
+		bl, err := s.storage.Books.QueryKeyword(q,query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit))
+		if err != nil {
+			s.internalError(w,err)
+			return
+		}
 
 		s.render.HTML(w, http.StatusOK, "search", map[string]interface{}{
 			"CurVersion":       s.version,
@@ -537,7 +592,25 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprout
 }
 
 func (s *Server) handleRandom(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	rand.Seed(time.Now().UnixNano())
-	n := rand.Int() % len(s.Indexer.BookList())
-	http.Redirect(w, r, "/books/"+(s.Indexer.BookList())[n].ID(), http.StatusTemporaryRedirect)
+	bl, err := s.storage.Books.Query(storage.NewQuery().Random().Take(1))
+	if err != nil {
+		s.internalError(w,err)
+		return
+	}
+
+	if len(bl) == 0 {
+		// empty database
+		s.render.HTML(w, http.StatusOK, "search", map[string]interface{}{
+			"CurVersion":       s.version,
+			"PageTitle":        "Search",
+			"ShowBar":          true,
+			"ShowSearch":       true,
+			"ShowViewSelector": false,
+			"Title":            "Search",
+			"Query":            "",
+		})
+	} else {
+		b := bl[0]
+		http.Redirect(w, r, fmt.Sprintf("/books/%d",b.ID), http.StatusTemporaryRedirect)
+	}
 }

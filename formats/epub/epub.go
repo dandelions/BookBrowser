@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/geek1011/BookBrowser/booklist"
-	"github.com/geek1011/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/booklist"
+	"github.com/sblinch/BookBrowser/formats"
 
 	"time"
 
@@ -146,11 +146,15 @@ func load(filename string) (formats.BookInfo, error) {
 		break
 	}
 	for _, el := range opf.FindElements("//creator") {
-		e.book.Author = el.Text()
+		e.book.Author = &booklist.Author{
+			Name: el.Text(),
+		}
 		break
 	}
 	for _, el := range opf.FindElements("//publisher") {
-		e.book.Publisher = el.Text()
+		e.book.Publisher = &booklist.Publisher{
+			Name: el.Text(),
+		}
 		break
 	}
 	for _, el := range opf.FindElements("//description") {
@@ -212,7 +216,9 @@ findISBN:
 
 	// Calibre series metadata
 	if el := opf.FindElement("//meta[@name='calibre:series']"); el != nil {
-		e.book.Series = el.SelectAttrValue("content", "")
+		e.book.Series = &booklist.Series{
+			Name: strings.TrimSpace(el.SelectAttrValue("content", "")),
+		}
 
 		if el := opf.FindElement("//meta[@name='calibre:series_index']"); el != nil {
 			e.book.SeriesIndex, _ = strconv.ParseFloat(el.SelectAttrValue("content", "0"), 64)
@@ -220,10 +226,8 @@ findISBN:
 	}
 
 	// EPUB3 series metadata
-	if e.book.Series == "" {
+	if e.book.Series != nil {
 		if el := opf.FindElement("//meta[@property='belongs-to-collection']"); el != nil {
-			e.book.Series = strings.TrimSpace(el.Text())
-
 			var ctype string
 			if id := el.SelectAttrValue("id", ""); id != "" {
 				for _, el := range opf.FindElements("//meta[@refines='#" + id + "']") {
@@ -238,7 +242,7 @@ findISBN:
 			}
 
 			if ctype != "" && ctype != "series" {
-				e.book.Series, e.book.SeriesIndex = "", 0
+				e.book.Series, e.book.SeriesIndex = nil, 0
 			}
 		}
 	}

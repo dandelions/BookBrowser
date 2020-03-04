@@ -11,9 +11,9 @@ import (
 	"runtime/debug"
 
 	"github.com/beevik/etree"
-	"github.com/geek1011/BookBrowser/booklist"
-	"github.com/geek1011/BookBrowser/formats"
-	"github.com/geek1011/BookBrowser/util"
+	"github.com/sblinch/BookBrowser/booklist"
+	"github.com/sblinch/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/util"
 	"github.com/pkg/errors"
 )
 
@@ -105,7 +105,9 @@ func load(filename string) (bi formats.BookInfo, ferr error) {
 	}
 
 	for _, e := range xmp.FindElements("//creator/Seq/li") {
-		p.book.Author = e.Text()
+		p.book.Author = &booklist.Author{
+			Name: e.Text(),
+		}
 		break
 	}
 

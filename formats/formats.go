@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/geek1011/BookBrowser/booklist"
+	"github.com/sblinch/BookBrowser/booklist"
 
 	"github.com/pkg/errors"
 )

@@ -1,19 +1,13 @@
 package booklist
 
 import (
-	"crypto/sha1"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-type cachedID struct {
-	id string
-	value string
-}
-
 type Book struct {
+	ID       int
 	Hash     string
 	FilePath string
 	FileSize int64
@@ -21,37 +15,18 @@ type Book struct {
 
 	HasCover    bool
 	Title       string
-	Author      string
 	Description string
-	Series      string
 	SeriesIndex float64
-	Publisher   string
-	ISBN		string
-	PublishDate	time.Time
+	ISBN        string
+	PublishDate time.Time
 
-	seriesid	cachedID
-	authorid	cachedID
-}
+	SeriesID    int
+	AuthorID    int
+	PublisherID int
 
-func (b *Book) ID() string {
-	return b.Hash[:10]
-}
-
-func (b *Book) cachedIDStr(cached *cachedID, value string) string {
-	if len(cached.id)==0 || value != cached.value {
-		cached.value = value
-		cached.id = fmt.Sprintf("%x", sha1.Sum([]byte(value)))[:10]
-	}
-
-	return cached.id
-}
-
-func (b *Book) AuthorID() string {
-	return b.cachedIDStr(&b.authorid,b.Author)
-}
-
-func (b *Book) SeriesID() string {
-	return b.cachedIDStr(&b.seriesid,b.Series)
+	Author    *Author
+	Series    *Series
+	Publisher *Publisher
 }
 
 func (b *Book) FileType() string {

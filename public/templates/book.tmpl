@@ -2,7 +2,7 @@
 <div class="single-book">
     <div class="cover">
         {{if .HasCover}}
-        <img src="/covers/{{.ID}}.jpg" alt="cover">
+        <img src="/covers/{{.Hash}}.jpg" alt="cover">
         {{else}}
         <img src="/static/nocover.jpg" alt="cover">
         {{end}}
@@ -17,11 +17,11 @@
     </div>
     <div class="meta">
         <div class="title">{{.Title}}</div>
-        {{if .Author}}
-        <a href="/authors/{{.AuthorID}}" class="author">{{.Author}}</a>
-        {{end}} {{if .Series}}
+        {{if .AuthorID}}
+        <a href="/authors/{{.AuthorID}}" class="author">{{.Author.Name}}</a>
+        {{end}} {{if .SeriesID}}
         <div class="series">
-            <a href="/series/{{.SeriesID}}" class="name">{{.Series}}</a> -
+            <a href="/series/{{.SeriesID}}" class="name">{{.Series.Name}}</a> -
             <span class="index">{{.SeriesIndex}}</span>
         </div>
         {{end}} {{if .Description}}

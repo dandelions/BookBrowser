@@ -14,13 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/geek1011/BookBrowser/formats/epub"
-	_ "github.com/geek1011/BookBrowser/formats/mobi"
-	_ "github.com/geek1011/BookBrowser/formats/pdf"
-	"github.com/geek1011/BookBrowser/server"
-	"github.com/geek1011/BookBrowser/util"
-	"github.com/geek1011/BookBrowser/util/sigusr"
+	_ "github.com/sblinch/BookBrowser/formats/epub"
+	_ "github.com/sblinch/BookBrowser/formats/mobi"
+	_ "github.com/sblinch/BookBrowser/formats/pdf"
+	"github.com/sblinch/BookBrowser/server"
+	"github.com/sblinch/BookBrowser/util"
+	"github.com/sblinch/BookBrowser/util/sigusr"
 	"github.com/spf13/pflag"
+	"github.com/sblinch/BookBrowser/storage"
 )
 
 var curversion = "dev"
@@ -90,6 +91,11 @@ func main() {
 		log.Fatalf("Error: could not resolve temp directory %s: %v\n", *datadir, err)
 	}
 
+	stor, err := storage.New(*datadir + "/bookbrowser.sqlite3")
+	if err != nil {
+		log.Fatalf("Error: could not prepare SQLite database in %s: %v\n", *datadir, err)
+	}
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -113,11 +119,15 @@ func main() {
 		}
 	}
 
-	s := server.NewServer(*addr, *bookdir, *datadir, curversion, true, *nocovers)
+	log.Printf("Server")
+	s := server.NewServer(*addr, stor, *bookdir, *datadir, curversion, true, *nocovers)
 	go func() {
-		s.LoadBookIndex()
 		s.RefreshBookIndex()
-		if len(s.Indexer.BookList()) == 0 {
+		total, err := stor.Books.Count(storage.NewQuery())
+		if err != nil {
+			log.Fatalf("Fatal error: %v",err)
+		}
+		if total == 0 {
 			log.Fatalln("Fatal error: no books found")
 		}
 		checkUpdate()

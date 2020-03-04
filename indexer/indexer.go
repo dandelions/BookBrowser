@@ -2,34 +2,37 @@ package indexer
 
 import (
 	"fmt"
-	"image/jpeg"
 	"log"
 	"os"
+		"image/jpeg"
 	"path/filepath"
-	"sync"
+	"crypto/sha1"
 
-	"github.com/geek1011/BookBrowser/booklist"
-	"github.com/geek1011/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/booklist"
+	"github.com/sblinch/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/storage"
 
 	"github.com/mattn/go-zglob"
 	"github.com/nfnt/resize"
 	"github.com/pkg/errors"
-	"encoding/json"
+	"sync/atomic"
 )
 
+// An Indexer walks filesystem path(s) and imports book data into the index database.
 type Indexer struct {
 	Verbose  bool
 	Progress float64
+	storage  *storage.Storage
 	datapath *string
 	paths    []string
 	exts     []string
 	booklist booklist.BookList
-	mu       sync.Mutex
-	indMu    sync.Mutex
-	seen     *SeenCache
+
+	indexingActive uint32
 }
 
-func New(paths []string, datapath *string, exts []string) (*Indexer, error) {
+// Creates a new Indexer.
+func New(paths []string, storage *storage.Storage, datapath *string, exts []string) (*Indexer, error) {
 	for i := range paths {
 		p, err := filepath.Abs(paths[i])
 		if err != nil {
@@ -47,104 +50,29 @@ func New(paths []string, datapath *string, exts []string) (*Indexer, error) {
 		cp = &p
 	}
 
-	return &Indexer{paths: paths, datapath: cp, exts: exts, seen: NewSeenCache()}, nil
+	return &Indexer{paths: paths, storage: storage, datapath: cp, exts: exts}, nil
 }
 
-func (i *Indexer) Load() error {
-	i.indMu.Lock()
-	defer i.indMu.Unlock()
+// Store this many books in memory before writing a batch to the database for improved performance
+const insertTransactionSize = 64
 
-	booklist := booklist.BookList{}
-
-	jsonFilename := filepath.Join(*i.datapath, "index.json")
-	f, err := os.Open(jsonFilename)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		} else {
-			return errors.Wrap(err, "could not open index cache file")
-		}
-	}
-	dec := json.NewDecoder(f)
-	err = dec.Decode(&booklist)
-	if err != nil {
-		return errors.Wrap(err, "could not decode index cache file")
-	}
-	seen := NewSeenCache()
-	for index, b := range booklist {
-		seen.Add(b.FilePath, b.FileSize, b.ModTime, index)
-	}
-
-	if i.Verbose {
-		log.Printf("Loaded %d items from index cache", len(booklist))
-	}
-
-	i.mu.Lock()
-	i.booklist = booklist
-	i.seen = seen
-	i.mu.Unlock()
-
-	return nil
-}
-
-func (i *Indexer) Save() error {
-	i.indMu.Lock()
-	defer i.indMu.Unlock()
-
-	i.mu.Lock()
-	booklist := i.booklist
-	i.mu.Unlock()
-
-	tmpFilename := filepath.Join(*i.datapath, ".index.json.tmp")
-	jsonFilename := filepath.Join(*i.datapath, "index.json")
-	f, err := os.Create(tmpFilename)
-	if err != nil {
-		f.Close()
-		return errors.Wrap(err, "could not create index cache temporary file")
-	}
-
-	enc := json.NewEncoder(f)
-	err = enc.Encode(&booklist)
-	if err != nil {
-		f.Close()
-		return errors.Wrap(err, "could not encode index cache file")
-	}
-
-	err = os.Rename(tmpFilename, jsonFilename)
-	if err != nil {
-		return errors.Wrap(err, "could not replace index cache file with temporary file")
-	}
-
-	if i.Verbose {
-		log.Printf("Saved %d items to index cache", len(booklist))
-	}
-
-	return nil
-}
-
+// Refresh updates the index database.
 func (i *Indexer) Refresh() ([]error, error) {
-	i.indMu.Lock()
-	defer i.indMu.Unlock()
-
-	defer func() {
-		i.Progress = 0
-	}()
-
 	errs := []error{}
+
+	if !atomic.CompareAndSwapUint32(&i.indexingActive,0,1) {
+		return errs, errors.New("indexing is already in progress")
+	}
+	defer atomic.StoreUint32(&i.indexingActive,0)
 
 	if len(i.paths) < 1 {
 		return errs, errors.New("no paths to index")
 	}
 
-	// seenID may be redundant at this point given that SeenCache does essentially the same thing, but
-	// seenCache is based on the mtime/size/filename of each book (for performance), whereas seenID is based on
-	// the file hash
-	seenID := map[string]bool{}
-	seen := NewSeenCache()
-
-	i.mu.Lock()
-	bl := i.booklist
-	i.mu.Unlock()
+	seen, err := i.storage.Books.GetSeen()
+	if err != nil {
+		return errs, err
+	}
 
 	filenames := []string{}
 	for _, path := range i.paths {
@@ -162,8 +90,11 @@ func (i *Indexer) Refresh() ([]error, error) {
 		}
 	}
 
-	exists := make([]bool, len(bl), len(bl))
+	defer func() {
+		i.Progress = 0
+	}()
 
+	newBooks := make([]*booklist.Book, 0, insertTransactionSize)
 	for fi, filepath := range filenames {
 		if i.Verbose {
 			log.Printf("Indexing %s", filepath)
@@ -178,60 +109,43 @@ func (i *Indexer) Refresh() ([]error, error) {
 			continue
 		}
 
-		var book *booklist.Book
-		hash := i.seen.Hash(filepath, stat.Size(), stat.ModTime())
-		haveSeen, blIndex := i.seen.SeenHash(hash)
-		if haveSeen {
-			exists[blIndex] = true
-			seen.AddHash(hash, blIndex)
+		filenameHash := fmt.Sprintf("%x", sha1.Sum([]byte(filepath)))
+		if existing, exists := seen[filenameHash]; exists && existing.ModTime == stat.ModTime().Unix() && existing.FileSize == stat.Size() {
 			if i.Verbose {
 				log.Printf("Already seen; not reindexing")
 			}
 		} else {
-			// TODO: pass stat variable to i.getBook() to avoid a duplicate os.Stat() for each book
-			book, err = i.getBook(filepath)
+			book, err := i.getBook(filepath)
 			if err != nil {
 				errs = append(errs, errors.Wrapf(err, "error reading book '%s'", filepath))
 				if i.Verbose {
 					log.Printf("--> Error: %v", errs[len(errs)-1])
 				}
 				continue
-			}
-			if !seenID[book.ID()] {
-				bl = append(bl, book)
-				seenID[book.ID()] = true
-				blIndex = len(bl) - 1
-				seen.AddHash(hash, blIndex)
+			} else {
+				seen[filenameHash] = storage.BookSeen{stat.Size(), stat.ModTime().Unix()}
+
+				newBooks = append(newBooks, book)
+				if len(newBooks) == cap(newBooks) {
+					if err := i.storage.Books.Save(newBooks...); err != nil {
+						log.Fatalf("Fatal error: %v",err)
+					}
+					newBooks = make([]*booklist.Book, 0, insertTransactionSize)
+				}
 			}
 		}
 
 		i.Progress = float64(fi+1) / float64(len(filenames))
 	}
 
-	// remove any books that have disappeared since our last indexing job
-	lastEntry := len(bl)-1
-	for index, stillExists := range exists {
-		if !stillExists {
-			bl[index] = bl[lastEntry]
-			lastEntry--
-		}
+	if len(newBooks) > 0 {
+		i.storage.Books.Save(newBooks...)
 	}
-	bl = bl[0:lastEntry+1]
-
-	i.mu.Lock()
-	i.booklist = bl
-	i.seen = seen
-	i.mu.Unlock()
 
 	return errs, nil
 }
 
-func (i *Indexer) BookList() booklist.BookList {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	return i.booklist
-}
-
+// getBook loads the metadata for an ebook and prepares its cover images.
 func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 	// TODO: caching
 	bi, err := formats.Load(filename)
@@ -242,8 +156,10 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 	b := bi.Book()
 	b.HasCover = false
 	if i.datapath != nil && bi.HasCover() {
-		coverpath := filepath.Join(*i.datapath, fmt.Sprintf("%s.jpg", b.ID()))
-		thumbpath := filepath.Join(*i.datapath, fmt.Sprintf("%s_thumb.jpg", b.ID()))
+		coverpath := filepath.Join(*i.datapath, fmt.Sprintf("%s.jpg", b.Hash))
+		thumbpath := filepath.Join(*i.datapath, fmt.Sprintf("%s_thumb.jpg", b.Hash))
+
+		log.Printf("has cover: %s %s",coverpath,thumbpath)
 
 		_, err := os.Stat(coverpath)
 		_, errt := os.Stat(thumbpath)
@@ -275,12 +191,14 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 
 			err = jpeg.Encode(tf, ti, nil)
 			if err != nil {
-				os.Remove(coverpath)
+				os.Remove(thumbpath)
 				return nil, errors.Wrap(err, "could not write cover thumbnail file")
 			}
 		}
 
 		b.HasCover = true
+	} else {
+		log.Printf("has no cover")
 	}
 
 	return b, nil

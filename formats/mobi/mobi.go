@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/geek1011/BookBrowser/booklist"
-	"github.com/geek1011/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/booklist"
+	"github.com/sblinch/BookBrowser/formats"
 	"github.com/moraes/isbn"
 	"github.com/pkg/errors"
 
@@ -102,12 +102,19 @@ func load(filename string) (bi formats.BookInfo, ferr error) {
 
 	authors := r.Authors()
 	if len(authors)>0 {
-		m.book.Author = authors[0]
+		m.book.Author = &booklist.Author{
+			Name: authors[0],
+		}
 	}
 
 	m.book.Description = r.Description()
-	m.book.Publisher = r.Publisher()
 
+	publisher := r.Publisher()
+	if len(publisher) > 0 {
+		m.book.Publisher = &booklist.Publisher{
+			Name: publisher,
+		}
+}
 	isbnStr := r.Isbn()
 	if len(isbnStr)>0 && isbn.Validate(isbnStr) {
 		m.book.ISBN = isbnStr
