@@ -16,6 +16,7 @@ import (
 	"github.com/nfnt/resize"
 	"github.com/pkg/errors"
 	"sync/atomic"
+	"github.com/sblinch/BookBrowser/formatters"
 )
 
 // An Indexer walks filesystem path(s) and imports book data into the index database.
@@ -154,6 +155,7 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 	}
 
 	b := bi.Book()
+	formatters.Apply(b)
 	b.HasCover = false
 	if i.datapath != nil && bi.HasCover() {
 		coverpath := filepath.Join(*i.datapath, fmt.Sprintf("%s.jpg", b.Hash))
