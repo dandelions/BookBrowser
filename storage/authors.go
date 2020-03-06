@@ -73,18 +73,8 @@ func NewAuthorStorage(s *Storage) (*AuthorStorage, error) {
 	return a, nil
 }
 
-func (a *AuthorStorage) Save(authors ... *booklist.Author) error {
-	tx, commit, rollback, err := a.storage.GetOrBeginTx()
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		if tx != nil {
-			rollback()
-		}
-	}()
-
+// Saves one or more Authors using the specified transaction.
+func (a *AuthorStorage) SaveTx(tx *sql.Tx, authors ... *booklist.Author) error {
 	insertStmt := tx.Stmt(a.preparedInsert)
 	updateStmt := tx.Stmt(a.preparedUpdate)
 	selectIDStmt := tx.Stmt(a.preparedSelectID)
@@ -93,6 +83,7 @@ func (a *AuthorStorage) Save(authors ... *booklist.Author) error {
 		res sql.Result
 		insertID int64
 		existingID int
+		err error
 	)
 	for _, author := range authors {
 		if author.ID > 0 {
@@ -118,11 +109,26 @@ func (a *AuthorStorage) Save(authors ... *booklist.Author) error {
 			}
 		}
 	}
-	if err = commit(); err != nil {
-		return fmt.Errorf("authors, save: %v",err)
-	}
-	tx = nil
+
 	return nil
+
+}
+
+// Saves one or more Authors.
+func (a *AuthorStorage) Save(authors ... *booklist.Author) error {
+	tx, err := a.storage.db.Begin()
+	if err != nil {
+		return err
+	}
+	err = a.SaveTx(tx,authors...)
+
+	if err == nil {
+		err = tx.Commit()
+	} else {
+		tx.Rollback()
+	}
+
+	return err
 }
 
 func (a *AuthorStorage) Count(q *Query) (int, error) {

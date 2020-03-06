@@ -72,18 +72,8 @@ func NewSeriesStorage(s *Storage) (*SeriesStorage, error) {
 	return a, nil
 }
 
-func (a *SeriesStorage) Save(seriesList ... *booklist.Series) error {
-	tx, commit, rollback, err := a.storage.GetOrBeginTx()
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		if tx != nil {
-			rollback()
-		}
-	}()
-
+// Saves one or more Series using the specified transaction.
+func (a *SeriesStorage) SaveTx(tx *sql.Tx, seriesList ... *booklist.Series) error {
 	insertStmt := tx.Stmt(a.preparedInsert)
 	updateStmt := tx.Stmt(a.preparedUpdate)
 	selectIDStmt := tx.Stmt(a.preparedSelectID)
@@ -92,6 +82,7 @@ func (a *SeriesStorage) Save(seriesList ... *booklist.Series) error {
 		res sql.Result
 		insertID int64
 		existingID int
+		err error
 	)
 	for _, series := range seriesList {
 		if series.ID > 0 {
@@ -117,12 +108,27 @@ func (a *SeriesStorage) Save(seriesList ... *booklist.Series) error {
 			}
 		}
 	}
-	if err = commit(); err != nil {
-		return fmt.Errorf("series, commit: %v",err)
-	}
-	tx = nil
 	return nil
 }
+
+// Saves one or more Series.
+func (a *SeriesStorage) Save(series ... *booklist.Series) error {
+	tx, err := a.storage.db.Begin()
+	if err != nil {
+		return err
+	}
+	err = a.SaveTx(tx,series...)
+
+	if err == nil {
+		err = tx.Commit()
+	} else {
+		tx.Rollback()
+	}
+
+	return err
+
+}
+
 
 func (a *SeriesStorage) Count(q *Query) (int, error) {
 	// specify columns explicitly (instead of *) to make sure Scan() encounters them in precisely the expected order

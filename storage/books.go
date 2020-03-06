@@ -7,8 +7,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"strings"
-	"log"
-)
+	)
 
 // BookStorage provides database functionality for Book objects
 type BookStorage struct {
@@ -72,24 +71,21 @@ func NewBookStorage(s *Storage) (*BookStorage, error) {
 }
 
 // Saves all of this object's dependencies (authors, publishers, series) to the database if not already saved.
-func (a *BookStorage) saveDeps(book *booklist.Book, tx *sql.Tx) error {
-	a.storage.SetActiveTx(tx)
-	defer a.storage.ClearActiveTx()
-
+func (a *BookStorage) saveDeps(tx *sql.Tx, book *booklist.Book) error {
 	if book.AuthorID == 0 && book.Author != nil && len(book.Author.Name) != 0 {
-		if err := a.storage.Authors.Save(book.Author); err != nil {
+		if err := a.storage.Authors.SaveTx(tx,book.Author); err != nil {
 			return fmt.Errorf("authors: %v",err)
 		}
 		book.AuthorID = book.Author.ID
 	}
 	if book.PublisherID == 0 && book.Publisher != nil && len(book.Publisher.Name) != 0 {
-		if err := a.storage.Publishers.Save(book.Publisher); err != nil {
+		if err := a.storage.Publishers.SaveTx(tx,book.Publisher); err != nil {
 			return fmt.Errorf("publishers: %v",err)
 		}
 		book.PublisherID = book.Publisher.ID
 	}
 	if book.SeriesID == 0 && book.Series != nil && len(book.Series.Name) != 0 {
-		if err := a.storage.Series.Save(book.Series); err != nil {
+		if err := a.storage.Series.SaveTx(tx,book.Series); err != nil {
 			return fmt.Errorf("series: %v",err)
 		}
 		book.SeriesID = book.Series.ID
@@ -97,27 +93,18 @@ func (a *BookStorage) saveDeps(book *booklist.Book, tx *sql.Tx) error {
 	return nil
 }
 
-// Saves one or more books.
-func (a *BookStorage) Save(books ... *booklist.Book) error {
-	log.Printf(" Saving %d book(s)",len(books))
-	tx, commit, rollback, err := a.storage.GetOrBeginTx()
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		if tx != nil {
-			rollback()
-		}
-	}()
-
+// Saves one or more books and any dependencies (authors, etc) using the specified transaction.
+func (a *BookStorage) SaveTx(tx *sql.Tx, books ... *booklist.Book) error {
 	insertStmt := tx.Stmt(a.preparedInsert)
 	updateStmt := tx.Stmt(a.preparedUpdate)
 
-	var res sql.Result
-	var insertID int64
+	var (
+		res sql.Result
+		insertID int64
+		err error
+	)
 	for _, book := range books {
-		if err = a.saveDeps(book,tx); err != nil {
+		if err = a.saveDeps(tx,book); err != nil {
 			return fmt.Errorf("books, deps: %v",err)
 		}
 
@@ -139,11 +126,25 @@ func (a *BookStorage) Save(books ... *booklist.Book) error {
 			}
 		}
 	}
-	if err = commit(); err != nil {
-		return fmt.Errorf("books, commit: %v",err)
-	}
-	tx = nil
+
 	return nil
+}
+
+// Saves one or more books and any dependencies (authors, etc).
+func (a *BookStorage) Save(books... *booklist.Book) error {
+	tx, err := a.storage.db.Begin()
+	if err != nil {
+		return err
+	}
+	err = a.SaveTx(tx,books...)
+
+	if err == nil {
+		err = tx.Commit()
+	} else {
+		tx.Rollback()
+	}
+
+	return err
 }
 
 // Parses SQL result rows and creates a slice of Books.

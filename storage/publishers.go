@@ -71,17 +71,8 @@ func NewPublisherStorage(s *Storage) (*PublisherStorage, error) {
 	return a, nil
 }
 
-func (a *PublisherStorage) Save(publishers ... *booklist.Publisher) error {
-	tx, commit, rollback, err := a.storage.GetOrBeginTx()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if tx != nil {
-			rollback()
-		}
-	}()
-
+// Saves one or more Piblishers using the specified transaction.
+func (a *PublisherStorage) SaveTx(tx *sql.Tx, publishers ... *booklist.Publisher) error {
 	insertStmt := tx.Stmt(a.preparedInsert)
 	updateStmt := tx.Stmt(a.preparedUpdate)
 	selectIDStmt := tx.Stmt(a.preparedSelectID)
@@ -90,6 +81,7 @@ func (a *PublisherStorage) Save(publishers ... *booklist.Publisher) error {
 		res sql.Result
 		insertID int64
 		existingID int
+		err error
 	)
 	for _, publisher := range publishers {
 		if publisher.ID > 0 {
@@ -115,13 +107,27 @@ func (a *PublisherStorage) Save(publishers ... *booklist.Publisher) error {
 			}
 		}
 	}
-	if err = commit(); err != nil {
-		return fmt.Errorf("publishers, commit: %v",err)
-	}
-	tx = nil
+
 	return nil
 }
 
+// Saves one or more Publishers.
+func (a *PublisherStorage) Save(publishers ... *booklist.Publisher) error {
+	tx, err := a.storage.db.Begin()
+	if err != nil {
+		return err
+	}
+	err = a.SaveTx(tx,publishers...)
+
+	if err == nil {
+		err = tx.Commit()
+	} else {
+		tx.Rollback()
+	}
+
+	return err
+
+}
 
 func (a *PublisherStorage) Count(q *Query) (int, error) {
 	// specify columns explicitly (instead of *) to make sure Scan() encounters them in precisely the expected order

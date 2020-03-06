@@ -17,6 +17,9 @@ import (
 	"github.com/pkg/errors"
 	"sync/atomic"
 	"github.com/sblinch/BookBrowser/formatters"
+	"sync"
+	"math/rand"
+	"time"
 )
 
 // An Indexer walks filesystem path(s) and imports book data into the index database.
@@ -57,6 +60,11 @@ func New(paths []string, storage *storage.Storage, datapath *string, exts []stri
 // Store this many books in memory before writing a batch to the database for improved performance
 const insertTransactionSize = 64
 
+// Use this many goroutines to concurrently read each ebook and create its cover/thumbnail files;
+// the default value of 6 is arbitrary but was the lowest value that improved import time by a
+// measurable amount for the author.
+const importConcurrency = 6
+
 // Refresh updates the index database.
 func (i *Indexer) Refresh() ([]error, error) {
 	errs := []error{}
@@ -73,6 +81,10 @@ func (i *Indexer) Refresh() ([]error, error) {
 	seen, err := i.storage.Books.GetSeen()
 	if err != nil {
 		return errs, err
+	}
+
+	if i.Verbose {
+		log.Printf("Scanning directories")
 	}
 
 	filenames := []string{}
@@ -95,15 +107,67 @@ func (i *Indexer) Refresh() ([]error, error) {
 		i.Progress = 0
 	}()
 
-	newBooks := make([]*booklist.Book, 0, insertTransactionSize)
-	for fi, filepath := range filenames {
-		if i.Verbose {
-			log.Printf("Indexing %s", filepath)
-		}
+	indexChan := make(chan string,8)
+	errorChan := make(chan error,8)
+	errorsDone := make(chan struct{})
 
+	go func() {
+		for err := range errorChan {
+			errs = append(errs, err)
+		}
+		close(errorsDone)
+	}()
+
+	importerGroup := sync.WaitGroup{}
+	for n := 0; n<importConcurrency; n++ {
+		importerGroup.Add(1)
+		go func() {
+			defer importerGroup.Done()
+
+			// vary the transaction size by +/- 20% for each goroutine so that they don't all try to commit their
+			// transactions at the same time
+			txnSize := insertTransactionSize * 8/10 + rand.Int() % (insertTransactionSize * 4/10)
+
+			newBooks := make([]*booklist.Book, 0, txnSize)
+			for filepath := range indexChan {
+				if i.Verbose {
+					log.Printf("Indexing %s", filepath)
+				}
+
+				book, err := i.getBook(filepath)
+				if err != nil {
+					err = errors.Wrapf(err, "error reading book '%s'", filepath)
+					errorChan <- err
+					if i.Verbose {
+						log.Printf("--> Error: %v", err)
+					}
+					continue
+				} else {
+					newBooks = append(newBooks, book)
+					if len(newBooks) == cap(newBooks) {
+						if err := i.storage.Books.Save(newBooks...); err != nil {
+							errorChan <- err
+							log.Printf("Fatal error: %v", err)
+							return
+						}
+
+						newBooks = make([]*booklist.Book, 0, txnSize)
+					}
+				}
+			}
+			if len(newBooks) > 0 {
+				i.storage.Books.Save(newBooks...)
+			}
+		}()
+	}
+
+
+	startTime := time.Now()
+
+	for fi, filepath := range filenames {
 		stat, err := os.Stat(filepath)
 		if err != nil {
-			errs = append(errs, errors.Wrapf(err, "cannot stat file '%s'", filepath))
+			errorChan <- errors.Wrapf(err, "cannot stat file '%s'", filepath)
 			if i.Verbose {
 				log.Printf("--> Error: %v", errs[len(errs)-1])
 			}
@@ -113,34 +177,24 @@ func (i *Indexer) Refresh() ([]error, error) {
 		filenameHash := fmt.Sprintf("%x", sha1.Sum([]byte(filepath)))
 		if existing, exists := seen[filenameHash]; exists && existing.ModTime == stat.ModTime().Unix() && existing.FileSize == stat.Size() {
 			if i.Verbose {
-				log.Printf("Already seen; not reindexing")
+				log.Printf("Already seen %s; not reindexing",filepath)
 			}
 		} else {
-			book, err := i.getBook(filepath)
-			if err != nil {
-				errs = append(errs, errors.Wrapf(err, "error reading book '%s'", filepath))
-				if i.Verbose {
-					log.Printf("--> Error: %v", errs[len(errs)-1])
-				}
-				continue
-			} else {
-				seen[filenameHash] = storage.BookSeen{stat.Size(), stat.ModTime().Unix()}
-
-				newBooks = append(newBooks, book)
-				if len(newBooks) == cap(newBooks) {
-					if err := i.storage.Books.Save(newBooks...); err != nil {
-						log.Fatalf("Fatal error: %v",err)
-					}
-					newBooks = make([]*booklist.Book, 0, insertTransactionSize)
-				}
-			}
+			indexChan <- filepath
 		}
 
 		i.Progress = float64(fi+1) / float64(len(filenames))
 	}
+	close(indexChan)
+	importerGroup.Wait()
 
-	if len(newBooks) > 0 {
-		i.storage.Books.Save(newBooks...)
+	close(errorChan)
+	<-errorsDone
+
+	endTime := time.Now()
+
+	if i.Verbose {
+		log.Printf("Completed indexing in %v",endTime.Sub(startTime))
 	}
 
 	return errs, nil
@@ -148,7 +202,6 @@ func (i *Indexer) Refresh() ([]error, error) {
 
 // getBook loads the metadata for an ebook and prepares its cover images.
 func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
-	// TODO: caching
 	bi, err := formats.Load(filename)
 	if err != nil {
 		return nil, errors.Wrap(err, "error loading book")
@@ -160,8 +213,6 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 	if i.datapath != nil && bi.HasCover() {
 		coverpath := filepath.Join(*i.datapath, fmt.Sprintf("%s.jpg", b.Hash))
 		thumbpath := filepath.Join(*i.datapath, fmt.Sprintf("%s_thumb.jpg", b.Hash))
-
-		log.Printf("has cover: %s %s",coverpath,thumbpath)
 
 		_, err := os.Stat(coverpath)
 		_, errt := os.Stat(thumbpath)
@@ -199,8 +250,6 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 		}
 
 		b.HasCover = true
-	} else {
-		log.Printf("has no cover")
 	}
 
 	return b, nil
