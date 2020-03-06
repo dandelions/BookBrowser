@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"crypto/sha1"
 	"fmt"
-	"image"
 	_ "image/gif"
 	_ "image/png"
 	"io"
@@ -24,6 +23,14 @@ import (
 	"golang.org/x/tools/godoc/vfs/zipfs"
 )
 
+type readerCustomCloser struct {
+	io.Reader
+	Closer func() error
+}
+func (r *readerCustomCloser) Close() error {
+	return r.Closer()
+}
+
 type epub struct {
 	hascover  bool
 	book      *booklist.Book
@@ -38,7 +45,7 @@ func (e *epub) HasCover() bool {
 	return e.coverpath != nil
 }
 
-func (e *epub) GetCover() (i image.Image, err error) {
+func (e *epub) GetCover() (i io.ReadCloser, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = errors.New("panic while decoding cover image")
@@ -49,7 +56,6 @@ func (e *epub) GetCover() (i image.Image, err error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "error opening epub as zip")
 	}
-	defer zr.Close()
 
 	zfs := zipfs.New(zr, "epub")
 
@@ -57,14 +63,18 @@ func (e *epub) GetCover() (i image.Image, err error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "could not open cover '%s'", *e.coverpath)
 	}
-	defer cr.Close()
 
-	i, _, err = image.Decode(cr)
-	if err != nil {
-		return nil, errors.Wrap(err, "error decoding image")
-	}
-
-	return i, nil
+	return &readerCustomCloser{
+		Reader: cr,
+		Closer: func() error {
+			err := cr.Close()
+			e := zr.Close()
+			if err == nil {
+				err = e
+			}
+			return err
+		},
+	}, nil
 }
 
 func load(filename string) (formats.BookInfo, error) {

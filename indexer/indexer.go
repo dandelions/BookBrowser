@@ -4,22 +4,21 @@ import (
 	"fmt"
 	"log"
 	"os"
-		"image/jpeg"
 	"path/filepath"
 	"crypto/sha1"
+	"sync/atomic"
+	"sync"
+	"math/rand"
+	"time"
 
 	"github.com/sblinch/BookBrowser/booklist"
 	"github.com/sblinch/BookBrowser/formats"
 	"github.com/sblinch/BookBrowser/storage"
+	"github.com/sblinch/BookBrowser/formatters"
+	"github.com/sblinch/BookBrowser/images"
 
 	"github.com/mattn/go-zglob"
-	"github.com/nfnt/resize"
 	"github.com/pkg/errors"
-	"sync/atomic"
-	"github.com/sblinch/BookBrowser/formatters"
-	"sync"
-	"math/rand"
-	"time"
 )
 
 // An Indexer walks filesystem path(s) and imports book data into the index database.
@@ -69,10 +68,10 @@ const importConcurrency = 6
 func (i *Indexer) Refresh() ([]error, error) {
 	errs := []error{}
 
-	if !atomic.CompareAndSwapUint32(&i.indexingActive,0,1) {
+	if !atomic.CompareAndSwapUint32(&i.indexingActive, 0, 1) {
 		return errs, errors.New("indexing is already in progress")
 	}
-	defer atomic.StoreUint32(&i.indexingActive,0)
+	defer atomic.StoreUint32(&i.indexingActive, 0)
 
 	if len(i.paths) < 1 {
 		return errs, errors.New("no paths to index")
@@ -107,8 +106,8 @@ func (i *Indexer) Refresh() ([]error, error) {
 		i.Progress = 0
 	}()
 
-	indexChan := make(chan string,8)
-	errorChan := make(chan error,8)
+	indexChan := make(chan string, 8)
+	errorChan := make(chan error, 8)
 	errorsDone := make(chan struct{})
 
 	go func() {
@@ -119,14 +118,14 @@ func (i *Indexer) Refresh() ([]error, error) {
 	}()
 
 	importerGroup := sync.WaitGroup{}
-	for n := 0; n<importConcurrency; n++ {
+	for n := 0; n < importConcurrency; n++ {
 		importerGroup.Add(1)
 		go func() {
 			defer importerGroup.Done()
 
 			// vary the transaction size by +/- 20% for each goroutine so that they don't all try to commit their
 			// transactions at the same time
-			txnSize := insertTransactionSize * 8/10 + rand.Int() % (insertTransactionSize * 4/10)
+			txnSize := insertTransactionSize*8/10 + rand.Int()%(insertTransactionSize*4/10)
 
 			newBooks := make([]*booklist.Book, 0, txnSize)
 			for filepath := range indexChan {
@@ -161,7 +160,6 @@ func (i *Indexer) Refresh() ([]error, error) {
 		}()
 	}
 
-
 	startTime := time.Now()
 
 	for fi, filepath := range filenames {
@@ -177,7 +175,7 @@ func (i *Indexer) Refresh() ([]error, error) {
 		filenameHash := fmt.Sprintf("%x", sha1.Sum([]byte(filepath)))
 		if existing, exists := seen[filenameHash]; exists && existing.ModTime == stat.ModTime().Unix() && existing.FileSize == stat.Size() {
 			if i.Verbose {
-				log.Printf("Already seen %s; not reindexing",filepath)
+				log.Printf("Already seen %s; not reindexing", filepath)
 			}
 		} else {
 			indexChan <- filepath
@@ -194,7 +192,7 @@ func (i *Indexer) Refresh() ([]error, error) {
 	endTime := time.Now()
 
 	if i.Verbose {
-		log.Printf("Completed indexing in %v",endTime.Sub(startTime))
+		log.Printf("Completed indexing in %v", endTime.Sub(startTime))
 	}
 
 	return errs, nil
@@ -217,10 +215,11 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 		_, err := os.Stat(coverpath)
 		_, errt := os.Stat(thumbpath)
 		if err != nil || errt != nil {
-			i, err := bi.GetCover()
+			r, err := bi.GetCover()
 			if err != nil {
 				return nil, errors.Wrap(err, "error getting cover")
 			}
+			defer r.Close()
 
 			f, err := os.Create(coverpath)
 			if err != nil {
@@ -228,24 +227,21 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 			}
 			defer f.Close()
 
-			err = jpeg.Encode(f, i, nil)
-			if err != nil {
+			e := images.Encoder(r)
+			if err = e.EncodeCover(f); err != nil {
 				os.Remove(coverpath)
 				return nil, errors.Wrap(err, "could not write cover file")
 			}
 
-			ti := resize.Thumbnail(400, 400, i, resize.Bicubic)
-
 			tf, err := os.Create(thumbpath)
 			if err != nil {
+				os.Remove(thumbpath)
 				return nil, errors.Wrap(err, "could not create cover thumbnail file")
 			}
 			defer tf.Close()
 
-			err = jpeg.Encode(tf, ti, nil)
-			if err != nil {
-				os.Remove(thumbpath)
-				return nil, errors.Wrap(err, "could not write cover thumbnail file")
+			if e.EncodeThumbnail(tf, 400, 400); err != nil {
+				return nil, errors.Wrap(err, "could not write thumbnail file")
 			}
 		}
 

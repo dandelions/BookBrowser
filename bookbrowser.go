@@ -125,7 +125,7 @@ func main() {
 		s.RefreshBookIndex()
 		total, err := stor.Books.Count(storage.NewQuery())
 		if err != nil {
-			log.Fatalf("Fatal error: %v",err)
+			log.Fatalf("Fatal error: %v", err)
 		}
 		if total == 0 {
 			log.Fatalln("Fatal error: no books found")

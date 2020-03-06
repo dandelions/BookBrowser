@@ -1,13 +1,11 @@
 package formats
 
 import (
-	"image"
 	"path/filepath"
 	"strings"
-
 	"github.com/sblinch/BookBrowser/booklist"
-
 	"github.com/pkg/errors"
+	"io"
 )
 
 var formats = map[string]func(filename string) (BookInfo, error){}
@@ -15,7 +13,7 @@ var formats = map[string]func(filename string) (BookInfo, error){}
 type BookInfo interface {
 	Book() *booklist.Book
 	HasCover() bool
-	GetCover() (image.Image, error)
+	GetCover() (io.ReadCloser, error)
 }
 
 func Register(ext string, load func(filename string) (BookInfo, error)) {

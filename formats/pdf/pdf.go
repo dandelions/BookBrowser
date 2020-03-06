@@ -3,8 +3,7 @@ package pdf
 import (
 	"crypto/sha1"
 	"fmt"
-	"image"
-	"io"
+		"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -29,7 +28,7 @@ func (e *pdf) HasCover() bool {
 	return false
 }
 
-func (e *pdf) GetCover() (i image.Image, err error) {
+func (e *pdf) GetCover() (i io.ReadCloser, err error) {
 	return nil, errors.New("no cover")
 }
 

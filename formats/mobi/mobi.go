@@ -3,7 +3,6 @@ package mobi
 import (
 	"crypto/sha1"
 	"fmt"
-	"image"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,9 +17,20 @@ import (
 )
 
 type mobi struct {
-	book *booklist.Book
-	coverstart int64
+	book        *booklist.Book
+	coverstart  int64
 	coverlength int64
+}
+
+type limitedReaderCloser struct {
+	io.LimitedReader
+}
+func (l *limitedReaderCloser) Close() error {
+	if c, ok := l.R.(io.Closer); ok {
+		return c.Close()
+	} else {
+		return nil
+	}
 }
 
 func (e *mobi) Book() *booklist.Book {
@@ -31,7 +41,7 @@ func (e *mobi) HasCover() bool {
 	return e.coverstart > 0
 }
 
-func (e *mobi) GetCover() (i image.Image, err error) {
+func (e *mobi) GetCover() (i io.ReadCloser, err error) {
 	if !e.HasCover() {
 		return nil, errors.New("no cover")
 	}
@@ -40,18 +50,13 @@ func (e *mobi) GetCover() (i image.Image, err error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to open book file")
 	}
-	defer f.Close()
 
 	if _, err := f.Seek(e.coverstart, 0); err != nil {
 		return nil, errors.Wrap(err, "unable to see to cover offset")
 	}
 
-	ltd := io.LimitReader(f,e.coverlength)
-	if i, _, err = image.Decode(ltd); err != nil {
-		return nil, errors.Wrap(err, "unable to decode book cover")
-	}
-
-	return i, nil
+	ltd := &limitedReaderCloser{io.LimitedReader{f, e.coverlength}}
+	return ltd, nil
 }
 
 func load(filename string) (bi formats.BookInfo, ferr error) {
@@ -101,7 +106,7 @@ func load(filename string) (bi formats.BookInfo, ferr error) {
 	m.book.Title = r.BestTitle()
 
 	authors := r.Authors()
-	if len(authors)>0 {
+	if len(authors) > 0 {
 		m.book.Author = &booklist.Author{
 			Name: authors[0],
 		}
@@ -114,15 +119,15 @@ func load(filename string) (bi formats.BookInfo, ferr error) {
 		m.book.Publisher = &booklist.Publisher{
 			Name: publisher,
 		}
-}
+	}
 	isbnStr := r.Isbn()
-	if len(isbnStr)>0 && isbn.Validate(isbnStr) {
+	if len(isbnStr) > 0 && isbn.Validate(isbnStr) {
 		m.book.ISBN = isbnStr
 	}
 
 	m.book.PublishDate = parsePublishDate(r.PublishingDate())
 
-	if len(m.book.Title)==0 {
+	if len(m.book.Title) == 0 {
 		m.book.Title = filepath.Base(filename)
 	}
 
@@ -160,7 +165,7 @@ func parsePublishDate(s string) time.Time {
 		return time.Time{}
 	}
 
-	t, err := time.Parse(format,s)
+	t, err := time.Parse(format, s)
 	if err != nil {
 		t = time.Time{}
 	}
