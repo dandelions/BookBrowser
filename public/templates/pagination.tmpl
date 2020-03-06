@@ -1,3 +1,3 @@
 	<div class="pagination">
-    {{range .Pages}}<a href="?{{.QueryString}}"{{if .Current}} class="current"{{end}}{{if .Next}} class="next"{{end}}{{if .Prev}} class="prev"{{end}}>{{if .Index}}{{.Index}}{{end}}</a>{{end}}
+    {{range .Pages}}{{if .ElidedBefore}}<span>...</span>{{end}}<a href="?{{.QueryString}}"{{if .Current}} class="current"{{end}}{{if .Next}} class="next"{{end}}{{if .Prev}} class="prev"{{end}}>{{if .Index}}{{.Index}}{{end}}</a>{{if .ElidedAfter}}<span>...</span>{{end}}{{end}}
     </div>

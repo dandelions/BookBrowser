@@ -27,6 +27,8 @@ type Page struct {
 
 	Prev bool
 	Next bool
+	ElidedBefore bool
+	ElidedAfter bool
 }
 
 const defaultQueryLimit = 24		// default number of items to return, if no limit is specified; 24 is evenly divisible by the default of 4 items displayed per row
@@ -82,6 +84,7 @@ func NewPagination(v url.Values, totalItems int) *Pagination {
 	return p
 }
 
+const pageDisplayLimit = 10
 func (p *Pagination) Pages() []Page {
 	pages := make([]Page,0,p.TotalPages)
 
@@ -99,14 +102,68 @@ func (p *Pagination) Pages() []Page {
 		})
 	}
 
-	for idx := 0; idx<p.TotalPages; idx++ {
-		pages = append(pages,Page{
-			Index: idx+1,
-			Current: idx+1 == p.CurrentPage,
-			Offset: idx*p.ItemLimit,
-			Limit: p.ItemLimit,
-			QueryString: template.URL(fmt.Sprintf(p.queryStringFormat,idx*p.ItemLimit,p.ItemLimit)),
-		})
+	if p.TotalPages > pageDisplayLimit {
+		start := (p.CurrentPage-1) - pageDisplayLimit/2
+		if start < 0 {
+			start = 0
+		}
+		end := start + pageDisplayLimit
+		if end > p.TotalPages {
+			end = p.TotalPages
+			if end - pageDisplayLimit >= 0 {
+				start = end-pageDisplayLimit
+			}
+		}
+
+		if start > 0 {
+			idx := 0
+			pages = append(pages, Page{
+				Index:       idx + 1,
+				Current:     idx+1 == p.CurrentPage,
+				Offset:      idx * p.ItemLimit,
+				Limit:       p.ItemLimit,
+				QueryString: template.URL(fmt.Sprintf(p.queryStringFormat, idx*p.ItemLimit, p.ItemLimit)),
+				ElidedAfter: true,
+			})
+			end--
+		}
+		if end < p.TotalPages {
+			end--
+		}
+
+		for idx := start; idx < end; idx++ {
+			pages = append(pages, Page{
+				Index:       idx + 1,
+				Current:     idx+1 == p.CurrentPage,
+				Offset:      idx * p.ItemLimit,
+				Limit:       p.ItemLimit,
+				QueryString: template.URL(fmt.Sprintf(p.queryStringFormat, idx*p.ItemLimit, p.ItemLimit)),
+			})
+		}
+
+		if end < p.TotalPages {
+			idx := p.TotalPages - 1
+			pages = append(pages, Page{
+				Index:       idx + 1,
+				Current:     idx+1 == p.CurrentPage,
+				Offset:      idx * p.ItemLimit,
+				Limit:       p.ItemLimit,
+				QueryString: template.URL(fmt.Sprintf(p.queryStringFormat, idx*p.ItemLimit, p.ItemLimit)),
+				ElidedBefore: true,
+			})
+		}
+
+
+	} else {
+		for idx := 0; idx < p.TotalPages; idx++ {
+			pages = append(pages, Page{
+				Index:       idx + 1,
+				Current:     idx+1 == p.CurrentPage,
+				Offset:      idx * p.ItemLimit,
+				Limit:       p.ItemLimit,
+				QueryString: template.URL(fmt.Sprintf(p.queryStringFormat, idx*p.ItemLimit, p.ItemLimit)),
+			})
+		}
 	}
 
 	if p.CurrentPage != p.TotalPages {
