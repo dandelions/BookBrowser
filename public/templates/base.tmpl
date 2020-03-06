@@ -49,8 +49,33 @@
             <div class="search">
                 <form action="/search" method="GET">
                     {{if .Query}}
-                    <input type="text" name="q" placeholder="Search Books..." class="box" /> {{else}}
-                    <input type="text" name="q" placeholder="Search Books..." value="{{.Query}}" class="box" /> {{end}}
+                    <input type="text" name="q" placeholder="Search Books..." value="{{.Query}}" class="box" /> {{else}}
+                    <input type="text" name="q" placeholder="Search Books..." class="box" /> {{end}}
+                    <button type="submit" class="button">
+                        <i class="fa fa-search"></i>
+                    </button>
+                </form>
+            </div>
+            {{else}}
+            {{if .ShowAuthorSearch}}
+            <div class="search">
+                <form action="/search/authors" method="GET">
+                    {{if .AuthorQuery}}
+                    <input type="text" name="q" placeholder="Search Authors..." value="{{.AuthorQuery}}" class="box" /> {{else}}
+                    <input type="text" name="q" placeholder="Search Authors..." class="box" /> {{end}}
+                    <button type="submit" class="button">
+                        <i class="fa fa-search"></i>
+                    </button>
+                </form>
+            </div>
+            {{else}}
+
+            {{if .ShowSeriesSearch}}
+            <div class="search">
+                <form action="/search/series" method="GET">
+                    {{if .SeriesQuery}}
+                    <input type="text" name="q" placeholder="Search Series..." value="{{.SeriesQuery}}" class="box" /> {{else}}
+                    <input type="text" name="q" placeholder="Search Series..." class="box" /> {{end}}
                     <button type="submit" class="button">
                         <i class="fa fa-search"></i>
                     </button>
@@ -58,7 +83,7 @@
             </div>
             {{else}}
             <div class="spacer" style="flex:1;"></div>
-            {{end}} {{if .ShowViewSelector}}
+            {{end}}{{end}}{{end}} {{if .ShowViewSelector}}
             <div class="view">
                 <a class="button view-cards">
                     <i class="fa fa-th"></i>

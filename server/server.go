@@ -6,13 +6,13 @@ import (
 	"html/template"
 	"io"
 	"log"
-		"net/http"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
 	"strings"
-			"github.com/sblinch/BookBrowser/formats"
+	"github.com/sblinch/BookBrowser/formats"
 	"github.com/sblinch/BookBrowser/indexer"
 	"github.com/sblinch/BookBrowser/public"
 	//"github.com/geek1011/kepubify/kepub"
@@ -23,16 +23,16 @@ import (
 
 // Server is a BookBrowser server.
 type Server struct {
-	Indexer       *indexer.Indexer
-	BookDir       string
-	DataDir       string
-	NoCovers      bool
-	Addr          string
-	Verbose       bool
-	storage       *storage.Storage
-	router        *httprouter.Router
-	render        *render.Render
-	version       string
+	Indexer  *indexer.Indexer
+	BookDir  string
+	DataDir  string
+	NoCovers bool
+	Addr     string
+	Verbose  bool
+	storage  *storage.Storage
+	router   *httprouter.Router
+	render   *render.Render
+	version  string
 }
 
 // NewServer creates a new BookBrowser server. It will not index the books automatically.
@@ -48,15 +48,15 @@ func NewServer(addr string, stor *storage.Storage, bookdir, datadir, version str
 	}
 
 	s := &Server{
-		Indexer:       i,
-		BookDir:       bookdir,
-		Addr:          addr,
-		DataDir:       datadir,
-		NoCovers:      nocovers,
-		Verbose:       verbose,
-		storage:       stor,
-		router:        httprouter.New(),
-		version:       version,
+		Indexer:  i,
+		BookDir:  bookdir,
+		Addr:     addr,
+		DataDir:  datadir,
+		NoCovers: nocovers,
+		Verbose:  verbose,
+		storage:  stor,
+		router:   httprouter.New(),
+		version:  version,
 	}
 
 	s.initRender()
@@ -133,6 +133,8 @@ func (s *Server) initRouter() {
 	s.router.GET("/random", s.handleRandom)
 
 	s.router.GET("/search", s.handleSearch)
+	s.router.GET("/search/authors", s.handleSearchAuthors)
+	s.router.GET("/search/series", s.handleSearchSeries)
 
 	s.router.GET("/api/indexer", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		w.Header().Set("Cache-Control", "no-cache")
@@ -325,12 +327,13 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request, _ httprou
 		return
 	}
 
-
 	s.render.HTML(w, http.StatusOK, "authors", map[string]interface{}{
 		"CurVersion":       s.version,
 		"PageTitle":        "Authors",
 		"ShowBar":          true,
 		"ShowSearch":       false,
+		"ShowAuthorSearch": true,
+		"ShowSeriesSearch": false,
 		"ShowViewSelector": true,
 		"Title":            "Authors",
 		"Authors":          al,
@@ -342,7 +345,7 @@ func parseUserSort(s string, defaultKey string, defaultAscending bool) (key stri
 	if len(s) == 0 {
 		return defaultKey, defaultAscending
 	}
-	pieces := strings.SplitN(s,"-",2)
+	pieces := strings.SplitN(s, "-", 2)
 	if len(pieces) != 2 || pieces[0] == "" {
 		return defaultKey, defaultAscending
 	} else {
@@ -351,20 +354,20 @@ func parseUserSort(s string, defaultKey string, defaultAscending bool) (key stri
 }
 func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	aid := p.ByName("id")
-	authors, err := s.storage.Authors.Query(storage.NewQuery().Filtered("id",aid,true))
+	authors, err := s.storage.Authors.Query(storage.NewQuery().Filtered("id", aid, true))
 	if err != nil {
-		s.internalError(w, fmt.Errorf("query-authors: %v",err))
+		s.internalError(w, fmt.Errorf("query-authors: %v", err))
 		return
 	}
 
-	if len(authors)> 0 {
+	if len(authors) > 0 {
 		author := authors[0]
-		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"),"title", true)
+		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "title", true)
 
-		query := storage.NewQuery().Filtered("authorid",aid,true).SortedBy(userSortKey,userSortAsc)
+		query := storage.NewQuery().Filtered("authorid", aid, true).SortedBy(userSortKey, userSortAsc)
 		total, err := s.storage.Books.Count(query)
 		if err != nil {
-			s.internalError(w,fmt.Errorf("count-books: %v",err))
+			s.internalError(w, fmt.Errorf("count-books: %v", err))
 			return
 		}
 
@@ -373,7 +376,7 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 
 		bl, err := s.storage.Books.QueryDeps(query)
 		if err != nil {
-			s.internalError(w,fmt.Errorf("query-books: %v",err))
+			s.internalError(w, fmt.Errorf("query-books: %v", err))
 			return
 		}
 
@@ -382,6 +385,8 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 			"PageTitle":        author.Name,
 			"ShowBar":          true,
 			"ShowSearch":       false,
+			"ShowAuthorSearch": false,
+			"ShowSeriesSearch": false,
 			"ShowViewSelector": true,
 			"Title":            author.Name,
 			"Books":            bl,
@@ -395,6 +400,8 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 		"PageTitle":        "Not Found",
 		"ShowBar":          false,
 		"ShowSearch":       false,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": false,
 		"ShowViewSelector": false,
 		"Title":            "Not Found",
 		"Message":          "Author not found.",
@@ -402,10 +409,10 @@ func (s *Server) handleAuthor(w http.ResponseWriter, r *http.Request, p httprout
 }
 
 func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	query := storage.NewQuery().SortedBy("name",true)
+	query := storage.NewQuery().SortedBy("name", true)
 	total, err := s.storage.Series.Count(query)
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
@@ -414,7 +421,7 @@ func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprou
 
 	seriess, err := s.storage.Series.Query(query)
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
@@ -423,6 +430,8 @@ func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprou
 		"PageTitle":        "Series",
 		"ShowBar":          true,
 		"ShowSearch":       false,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": true,
 		"ShowViewSelector": true,
 		"Title":            "Series",
 		"Series":           seriess,
@@ -433,19 +442,19 @@ func (s *Server) handleSeriess(w http.ResponseWriter, r *http.Request, _ httprou
 func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	sid := p.ByName("id")
 
-	seriess, err := s.storage.Series.Query(storage.NewQuery().Filtered("id",sid,true))
+	seriess, err := s.storage.Series.Query(storage.NewQuery().Filtered("id", sid, true))
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
 	if len(seriess) > 0 {
 		series := seriess[0]
 
-		query := storage.NewQuery().Filtered("seriesid",sid,true).SortedBy("seriesindex",true)
+		query := storage.NewQuery().Filtered("seriesid", sid, true).SortedBy("seriesindex", true)
 		total, err := s.storage.Books.Count(query)
 		if err != nil {
-			s.internalError(w,err)
+			s.internalError(w, err)
 			return
 		}
 
@@ -454,7 +463,7 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 
 		bl, err := s.storage.Books.QueryDeps(query)
 		if err != nil {
-			s.internalError(w,err)
+			s.internalError(w, err)
 			return
 		}
 
@@ -463,6 +472,8 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 			"PageTitle":        series.Name,
 			"ShowBar":          true,
 			"ShowSearch":       false,
+			"ShowAuthorSearch": false,
+			"ShowSeriesSearch": false,
 			"ShowViewSelector": true,
 			"Title":            series.Name,
 			"Books":            bl,
@@ -476,6 +487,8 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 		"PageTitle":        "Not Found",
 		"ShowBar":          false,
 		"ShowSearch":       false,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": false,
 		"ShowViewSelector": false,
 		"Title":            "Not Found",
 		"Message":          "Series not found.",
@@ -483,12 +496,12 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 }
 
 func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"),"filemtime",false)
+	userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "id", false)
 
-	query := storage.NewQuery().SortedBy(userSortKey,userSortAsc)
+	query := storage.NewQuery().SortedBy(userSortKey, userSortAsc)
 	total, err := s.storage.Books.Count(query)
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
@@ -497,7 +510,7 @@ func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httproute
 
 	bl, err := s.storage.Books.QueryDeps(query)
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
@@ -506,6 +519,8 @@ func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httproute
 		"PageTitle":        "Books",
 		"ShowBar":          true,
 		"ShowSearch":       true,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": false,
 		"ShowViewSelector": true,
 		"Title":            "",
 		"Books":            bl,
@@ -515,9 +530,9 @@ func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httproute
 
 func (s *Server) handleBook(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	bid := p.ByName("id")
-	bl, err := s.storage.Books.QueryDeps(storage.NewQuery().Filtered("id",bid, true))
+	bl, err := s.storage.Books.QueryDeps(storage.NewQuery().Filtered("id", bid, true))
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
@@ -528,6 +543,8 @@ func (s *Server) handleBook(w http.ResponseWriter, r *http.Request, p httprouter
 			"PageTitle":        b.Title,
 			"ShowBar":          false,
 			"ShowSearch":       false,
+			"ShowAuthorSearch": false,
+			"ShowSeriesSearch": false,
 			"ShowViewSelector": false,
 			"Title":            "",
 			"Book":             b,
@@ -540,6 +557,8 @@ func (s *Server) handleBook(w http.ResponseWriter, r *http.Request, p httprouter
 		"PageTitle":        "Not Found",
 		"ShowBar":          false,
 		"ShowSearch":       false,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": false,
 		"ShowViewSelector": false,
 		"Title":            "Not Found",
 		"Message":          "Book not found.",
@@ -550,19 +569,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprout
 	q := r.URL.Query().Get("q")
 
 	if len(q) != 0 {
-		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"),"title",true)
+		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "title", true)
 
-		query := storage.NewQuery().SortedBy(userSortKey,userSortAsc)
-		total, err := s.storage.Books.CountKeyword(q,query)
+		query := storage.NewQuery().SortedBy(userSortKey, userSortAsc)
+		total, err := s.storage.Books.CountKeyword(q, query)
 		if err != nil {
-			s.internalError(w,err)
+			s.internalError(w, err)
 			return
 		}
 
 		pagination := NewPagination(r.URL.Query(), total)
-		bl, err := s.storage.Books.QueryKeyword(q,query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit))
+		bl, err := s.storage.Books.QueryKeyword(q, query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit))
 		if err != nil {
-			s.internalError(w,err)
+			s.internalError(w, err)
 			return
 		}
 
@@ -571,6 +590,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprout
 			"PageTitle":        "Search Results",
 			"ShowBar":          true,
 			"ShowSearch":       true,
+			"ShowAuthorSearch": false,
+			"ShowSeriesSearch": false,
 			"ShowViewSelector": true,
 			"Title":            "Search Results",
 			"Query":            q,
@@ -585,16 +606,120 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ httprout
 		"PageTitle":        "Search",
 		"ShowBar":          true,
 		"ShowSearch":       true,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": false,
 		"ShowViewSelector": false,
 		"Title":            "Search",
 		"Query":            "",
 	})
 }
 
+func (s *Server) handleSearchAuthors(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	q := r.URL.Query().Get("q")
+
+	if len(q) != 0 {
+		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "name", true)
+
+		query := storage.NewQuery().Filtered("name", q, false).SortedBy(userSortKey, userSortAsc)
+		total, err := s.storage.Authors.Count(query)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+
+		pagination := NewPagination(r.URL.Query(), total)
+		query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+
+		al, err := s.storage.Authors.Query(query)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+
+		s.render.HTML(w, http.StatusOK, "authors", map[string]interface{}{
+			"CurVersion":       s.version,
+			"PageTitle":        "Author Search Results",
+			"ShowBar":          true,
+			"ShowSearch":       false,
+			"ShowAuthorSearch": true,
+			"ShowSeriesSearch": false,
+			"ShowViewSelector": true,
+			"Title":            "Author Search Results",
+			"AuthorQuery":      q,
+			"Authors":          al,
+			"Pagination":       pagination,
+		})
+		return
+	}
+
+	s.render.HTML(w, http.StatusOK, "authors", map[string]interface{}{
+		"CurVersion":       s.version,
+		"PageTitle":        "Search Authors",
+		"ShowBar":          true,
+		"ShowSearch":       false,
+		"ShowAuthorSearch": true,
+		"ShowSeriesSearch": false,
+		"ShowViewSelector": false,
+		"Title":            "Search Authors",
+		"AuthorQuery":      "",
+	})
+}
+
+func (s *Server) handleSearchSeries(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	q := r.URL.Query().Get("q")
+
+	if len(q) != 0 {
+		userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "name", true)
+
+		query := storage.NewQuery().Filtered("name", q, false).SortedBy(userSortKey, userSortAsc)
+		total, err := s.storage.Series.Count(query)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+
+		pagination := NewPagination(r.URL.Query(), total)
+		query.Skip(pagination.ItemOffset).Take(pagination.ItemLimit)
+
+		sl, err := s.storage.Series.Query(query)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+
+		s.render.HTML(w, http.StatusOK, "seriess", map[string]interface{}{
+			"CurVersion":       s.version,
+			"PageTitle":        "Series Search Results",
+			"ShowBar":          true,
+			"ShowSearch":       false,
+			"ShowAuthorSearch": false,
+			"ShowSeriesSearch": true,
+			"ShowViewSelector": true,
+			"Title":            "Series Search Results",
+			"SeriesQuery":      q,
+			"Series":           sl,
+			"Pagination":       pagination,
+		})
+		return
+	}
+
+	s.render.HTML(w, http.StatusOK, "seriess", map[string]interface{}{
+		"CurVersion":       s.version,
+		"PageTitle":        "Search Series",
+		"ShowBar":          true,
+		"ShowSearch":       false,
+		"ShowAuthorSearch": false,
+		"ShowSeriesSearch": true,
+		"ShowViewSelector": false,
+		"Title":            "Search Series",
+		"SeriesQuery":      "",
+	})
+}
+
 func (s *Server) handleRandom(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	bl, err := s.storage.Books.Query(storage.NewQuery().Random().Take(1))
 	if err != nil {
-		s.internalError(w,err)
+		s.internalError(w, err)
 		return
 	}
 
@@ -605,12 +730,14 @@ func (s *Server) handleRandom(w http.ResponseWriter, r *http.Request, _ httprout
 			"PageTitle":        "Search",
 			"ShowBar":          true,
 			"ShowSearch":       true,
+			"ShowSeriesSearch": false,
+			"ShowAuthorSearch": false,
 			"ShowViewSelector": false,
 			"Title":            "Search",
 			"Query":            "",
 		})
 	} else {
 		b := bl[0]
-		http.Redirect(w, r, fmt.Sprintf("/books/%d",b.ID), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, fmt.Sprintf("/books/%d", b.ID), http.StatusTemporaryRedirect)
 	}
 }
