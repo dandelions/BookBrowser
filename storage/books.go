@@ -246,9 +246,9 @@ func (a *BookStorage) queryKeyword(keyword string, selectColumns []string, q *Qu
 	columnList := strings.Join(selectColumns, ",")
 	baseQuery := fmt.Sprintf(`
 SELECT DISTINCT %s
-  FROM (books,authors,series)
- WHERE (books.authorid=authors.id AND authors.name LIKE ?)
-    OR (books.seriesid=series.id AND series.name LIKE ?)
+  FROM books
+ WHERE books.authorid IN (SELECT id FROM authors WHERE name LIKE ?)
+    OR books.seriesid IN (SELECT id FROM series WHERE series.name LIKE ?)
     OR books.title LIKE ?
 `,columnList)
 
