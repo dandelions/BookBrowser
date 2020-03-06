@@ -1,3 +1,5 @@
+// +build !imgvips
+
 package images
 
 import (
