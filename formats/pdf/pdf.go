@@ -3,17 +3,15 @@ package pdf
 import (
 	"crypto/sha1"
 	"fmt"
-		"io"
-	"io/ioutil"
+	"io"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 
-	"github.com/beevik/etree"
 	"github.com/sblinch/BookBrowser/booklist"
 	"github.com/sblinch/BookBrowser/formats"
-	"github.com/sblinch/BookBrowser/util"
+	"github.com/sblinch/BookBrowser/formatters"
 	"github.com/pkg/errors"
+	"centova.com/pdfmeta"
 )
 
 type pdf struct {
@@ -33,13 +31,6 @@ func (e *pdf) GetCover() (i io.ReadCloser, err error) {
 }
 
 func load(filename string) (bi formats.BookInfo, ferr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			bi = nil
-			ferr = fmt.Errorf("unknown error: %s", r)
-		}
-	}()
-
 	p := &pdf{book: &booklist.Book{}}
 
 	f, err := os.Open(filename)
@@ -69,48 +60,21 @@ func load(filename string) (bi formats.BookInfo, ferr error) {
 
 	f.Close()
 
-	c, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
+	formatters.ApplyFilename(filename, p.book)
 
-	str := string(c)
-	c = []byte{}
-
-	str = util.StringBetween(str, "<?xpacket begin", "</x:xmpmeta>")
-	str = util.StringAfter(str, ">")
-
-	xmp := etree.NewDocument()
-	err = xmp.ReadFromString(str)
-	if err != nil {
-		return nil, err
-	}
-
-	p.book.Title = filepath.Base(filename)
-
-	for _, e := range xmp.FindElements("//format") {
-		// Make sure it is a pdf, not another piece of embedded RDF metadata
-		if e.Text() != "application/pdf" {
-			str = ""
-			debug.FreeOSMemory()
-			return p, nil
+	pdf := pdfmeta.NewPDFMeta()
+	meta, err := pdf.ParseFile(filename)
+	if meta != nil {
+		if meta.Author != "" {
+			p.book.Author = &booklist.Author{
+				Name: meta.Author,
+			}
 		}
-		break
-	}
-
-	for _, e := range xmp.FindElements("//title/Alt/li") {
-		p.book.Title = e.Text()
-		break
-	}
-
-	for _, e := range xmp.FindElements("//creator/Seq/li") {
-		p.book.Author = &booklist.Author{
-			Name: e.Text(),
+		if meta.Title != "" {
+			p.book.Title = meta.Title
 		}
-		break
 	}
 
-	str = ""
 	debug.FreeOSMemory()
 
 	return p, nil
