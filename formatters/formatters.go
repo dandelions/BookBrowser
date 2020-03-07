@@ -23,3 +23,12 @@ func Apply(b *booklist.Book) {
 		b.Author.Name = name
 	}
 }
+
+func ApplyFilename(filename string, b *booklist.Book) {
+	for _, n := range EnabledFilenameFormatters {
+		if formatter, exists := FilenameFormatters[n]; exists {
+			formatter(filename,b)
+		}
+	}
+
+}
