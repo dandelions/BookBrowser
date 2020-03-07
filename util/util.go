@@ -12,7 +12,13 @@ func StringBetween(str, start, end string) string {
 		return ""
 	}
 	s += len(start)
+	if s >= len(str) {
+		return ""
+	}
 	e := strings.Index(str, end)
+	if e == -1 {
+		return ""
+	}
 	return str[s:e]
 }
 
@@ -23,6 +29,9 @@ func StringAfter(str, start string) string {
 		return ""
 	}
 	s += len(start)
+	if s >= len(str) {
+		return ""
+	}
 	return str[s:]
 }
 
