@@ -4,7 +4,8 @@ import (
 	"github.com/sblinch/BookBrowser/booklist"
 	"database/sql"
 	"fmt"
-	)
+	"github.com/sblinch/BookBrowser/util"
+)
 
 type AuthorStorage struct {
 	storage *Storage
@@ -34,18 +35,18 @@ var authorFields = struct {
 	table: "authors",
 	
 	// id FIRST in columns
-	columns: []string{"id", "name"},
+	columns: []string{"id", "name", "sortname"},
 	scan: func(rows *sql.Rows, author *booklist.Author) error {
 		// id FIRST in scan
-		return rows.Scan(&author.ID, &author.Name)
+		return rows.Scan(&author.ID, &author.Name, &author.SortName)
 	},
 	insert: func(stmt *sql.Stmt, author *booklist.Author) (sql.Result, error) {
 		// id OMITTED in insert
-		return stmt.Exec(author.Name)
+		return stmt.Exec(author.Name, author.SortName)
 	},
 	update: func(stmt *sql.Stmt, author *booklist.Author) (sql.Result, error) {
 		// id LAST in update
-		return stmt.Exec(author.Name, author.ID)
+		return stmt.Exec(author.Name, author.SortName, author.ID)
 	},
 }
 
@@ -73,6 +74,15 @@ func NewAuthorStorage(s *Storage) (*AuthorStorage, error) {
 	return a, nil
 }
 
+
+func (a *AuthorStorage) SetSortName(author *booklist.Author) {
+	if author == nil || author.Name == "" {
+		author.SortName = ""
+	} else {
+		author.SortName = util.LastNameFirst(author.Name)
+	}
+}
+
 // Saves one or more Authors using the specified transaction.
 func (a *AuthorStorage) SaveTx(tx *sql.Tx, authors ... *booklist.Author) error {
 	insertStmt := tx.Stmt(a.preparedInsert)
@@ -86,12 +96,16 @@ func (a *AuthorStorage) SaveTx(tx *sql.Tx, authors ... *booklist.Author) error {
 		err error
 	)
 	for _, author := range authors {
+		a.SetSortName(author)
 		if author.ID > 0 {
 			if _, err = authorFields.update(updateStmt,author); err != nil {
 				return fmt.Errorf("authors, update: %v",err)
 			}
 
 		} else {
+			if author.Name == "" {
+				author.Name = "Unknown"
+			}
 			if err := selectIDStmt.QueryRow(author.Name).Scan(&existingID); err == nil && existingID > 0 {
 				author.ID = existingID
 				continue

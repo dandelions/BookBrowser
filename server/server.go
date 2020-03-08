@@ -313,7 +313,7 @@ func (s *Server) internalError(w http.ResponseWriter, err error) {
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 
-	query := storage.NewQuery().SortedBy("name", true)
+	query := storage.NewQuery().SortedBy("sortname", true)
 	totalAuthors, err := s.storage.Authors.Count(query)
 	if err != nil {
 		s.internalError(w, err)

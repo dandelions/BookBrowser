@@ -82,6 +82,7 @@ func (s *Storage) setupSchema() error {
 		`CREATE TABLE IF NOT EXISTS authors (
 	id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 	name VARCHAR(255) NOT NULL,
+	sortname VARCHAR(255) NOT NULL,
 	UNIQUE(name)
 )`,
 		`CREATE TABLE IF NOT EXISTS publishers (
