@@ -3,6 +3,7 @@ package util
 import (
 	"net"
 	"strings"
+	"os"
 )
 
 // StringBetween gets the string in between two other strings, and returns an empty string if not found. It returns the first match.
@@ -59,4 +60,12 @@ func GetIP() net.IP {
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
 	return localAddr.IP
+}
+
+func DirExists(pathname string) bool {
+	stat, err := os.Stat(pathname)
+	if os.IsNotExist(err)  {
+		return false
+	}
+	return stat.IsDir()
 }

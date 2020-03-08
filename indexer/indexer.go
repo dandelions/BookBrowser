@@ -16,6 +16,7 @@ import (
 	"github.com/sblinch/BookBrowser/storage"
 	"github.com/sblinch/BookBrowser/formatters"
 	"github.com/sblinch/BookBrowser/images"
+	"github.com/sblinch/BookBrowser/util"
 
 	"github.com/mattn/go-zglob"
 	"github.com/pkg/errors"
@@ -209,8 +210,15 @@ func (i *Indexer) getBook(filename string) (*booklist.Book, error) {
 	formatters.Apply(b)
 	b.HasCover = false
 	if i.datapath != nil && bi.HasCover() {
-		coverpath := filepath.Join(*i.datapath, fmt.Sprintf("%s.jpg", b.Hash))
-		thumbpath := filepath.Join(*i.datapath, fmt.Sprintf("%s_thumb.jpg", b.Hash))
+		imageRoot := filepath.Join(*i.datapath, b.Hash[0:2])
+		if !util.DirExists(imageRoot) {
+			err := os.Mkdir(imageRoot, 0755)
+			if err != nil && !os.IsNotExist(err) {
+				return nil, errors.Wrap(err, "error creating image directory")
+			}
+		}
+		coverpath := filepath.Join(imageRoot, fmt.Sprintf("%s.jpg", b.Hash[2:]))
+		thumbpath := filepath.Join(imageRoot, fmt.Sprintf("%s_thumb.jpg", b.Hash[2:]))
 
 		_, err := os.Stat(coverpath)
 		_, errt := os.Stat(thumbpath)

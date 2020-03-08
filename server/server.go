@@ -122,6 +122,16 @@ func (s *Server) initRender() {
 	})
 }
 
+// Allows cover images to be requested by the ebook hash, but converts the requested filename into the two-tier
+// directory format we use internally
+type CoverDir struct {
+	http.Dir
+}
+
+func (d CoverDir) Open(name string) (http.File, error) {
+	return d.Dir.Open(name[0:3] + "/" + name[3:])
+}
+
 // initRouter initializes the router for the BookBrowser server.
 func (s *Server) initRouter() {
 	s.router = httprouter.New()
@@ -157,7 +167,7 @@ func (s *Server) initRouter() {
 	s.router.GET("/static/*filepath", func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 		http.FileServer(public.Box).ServeHTTP(w, req)
 	})
-	s.router.ServeFiles("/covers/*filepath", http.Dir(s.DataDir))
+	s.router.ServeFiles("/covers/*filepath", CoverDir{Dir: http.Dir(s.DataDir)})
 }
 
 func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
