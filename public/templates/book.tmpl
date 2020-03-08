@@ -8,6 +8,9 @@
         {{end}}
         <div class="buttons">
             <a href="/download/{{.ID}}.{{.FileType}}" class="button download">Download {{ .FileType | ToUpper }}</a>
+            {{if ne .FileType "mobi"}}
+            <a class="button download" href="/ebook/mobi{{.FilePath}}">Convert to MOBI</a>
+            {{end}}
             {{if eq .FileType "epub"}}
             <a class="button read" href="/static/reader/epub/#!/download/{{.ID}}.{{.FileType}}">Read</a>
             {{end}} {{if eq .FileType "pdf"}}
