@@ -22,6 +22,7 @@ import (
 	"github.com/sblinch/BookBrowser/util/sigusr"
 	"github.com/spf13/pflag"
 	"github.com/sblinch/BookBrowser/storage"
+	"github.com/okzk/sdnotify"
 )
 
 var curversion = "dev"
@@ -104,6 +105,8 @@ func main() {
 			log.Println("Removing temporary data directory")
 			os.RemoveAll(*datadir)
 		}
+		sdnotify.Status("Caught signal")
+
 		os.Exit(0)
 	}()
 
@@ -138,10 +141,42 @@ func main() {
 		s.RefreshBookIndex()
 	})
 
+	appExiting := make(chan struct{})
+	watchdogExited := systemdWatchdog(appExiting)
+	defer func() {
+		sdnotify.Stopping()
+		close(appExiting)
+		<-watchdogExited
+	}()
+
 	err = s.Serve()
 	if err != nil {
 		log.Fatalf("Error starting server: %s\n", err)
 	}
+}
+
+func systemdWatchdog(done chan struct{}) chan struct{} {
+	watchdogExiting := make(chan struct{})
+
+	sdnotify.Ready()
+	sdnotify.Status("Serving requests")
+
+	watchdogtick := time.Tick(30 * time.Second)
+	go func() {
+		defer func() {
+			close(watchdogExiting)
+		}()
+		for {
+			select {
+			case <-watchdogtick:
+				sdnotify.Watchdog()
+			case <-done:
+				break
+			}
+		}
+	}()
+
+	return watchdogExiting
 }
 
 func checkUpdate() {
