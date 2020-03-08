@@ -14,6 +14,7 @@ require (
 	github.com/mattn/go-zglob v0.0.0-20170124115757-95345c4e1c0e
 	github.com/moraes/isbn v0.0.0-20151007102746-e6388fb1bfd5
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
+	github.com/okzk/sdnotify v0.0.0-20180710141335-d9becc38acbd
 	github.com/pkg/errors v0.8.1-0.20180311214515-816c9085562c
 	github.com/sblinch/mobi v0.0.0-20190314025629-02fb646e8cd8
 	github.com/spf13/pflag v1.0.3
