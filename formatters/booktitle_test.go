@@ -1,6 +1,9 @@
 package formatters
 
-import "testing"
+import (
+	"testing"
+	"github.com/sblinch/BookBrowser/booklist"
+	)
 
 /*
 func isLowerAlphaChar(c byte) bool {
@@ -99,4 +102,32 @@ func TestUcFirst(t *testing.T) {
 			t.Fatalf("for %s:\nexpected: %v\n     saw: %v",input,expected,res)
 		}
 	}
+}
+
+func TestStripAuthor(t *testing.T) {
+	tests := []struct{
+		title string
+		author string
+		expected string
+	}{
+		{"This is a title","John Smith","This is a title"},
+		{"John Smith - I can't feel my legs","John Smith","I can't feel my legs"},
+		{"Smith, John - I can't feel my legs","John Smith","I can't feel my legs"},
+		{"Smith, Johnson - I can't feel my legs","John Smith","Smith, Johnson - I can't feel my legs"},
+		{"John Smitherson - I can't feel my legs","John Smith","John Smitherson - I can't feel my legs"},
+
+		{"I can't feel my legs - John Smith","John Smith","I can't feel my legs"},
+		{"I can't feel my legs - Smith, John","John Smith","I can't feel my legs"},
+		{"I can't feel my legs - Smith, Johnson","John Smith","I can't feel my legs - Smith, Johnson"},
+		{"I can't feel my legs - John Smitherson","John Smith","I can't feel my legs - John Smitherson"},
+	}
+
+	f := BookTitleFormatters["stripauthor"]
+	for _, test := range tests {
+		res := f(test.title,&booklist.Book{Author: &booklist.Author{Name: test.author}})
+		if res != test.expected {
+			t.Fatalf("for %s:\nexpected: %v\n     saw: %v",test.title,test.expected,res)
+		}
+	}
+
 }

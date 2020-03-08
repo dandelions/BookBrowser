@@ -3,6 +3,7 @@ package formatters
 import (
 	"strings"
 	"github.com/sblinch/BookBrowser/booklist"
+	"github.com/sblinch/BookBrowser/util"
 )
 
 func isLowerAlphaChar(c byte) bool {
@@ -24,7 +25,7 @@ func ucWords(s string) string {
 				if isLowerAlphaChar(c) {
 					b[i] = c - 32
 				}
-			} else if c != ' '{
+			} else if c != ' ' {
 				uc = false
 			}
 
@@ -44,6 +45,29 @@ func ucFirst(s string) string {
 	return s
 }
 
+func safeStripAuthor(name string, author string) string {
+	if strings.HasPrefix(name, author) {
+		c := name[len(author)]
+		if !isWordChar(c) {
+			name = strings.TrimPrefix(name, author)
+			for len(name) > 0 && !isWordChar(name[0]) {
+				name = name[1:]
+			}
+		}
+	}
+
+	if strings.HasSuffix(name, author) {
+		c := name[len(name)-len(author)-1]
+		if !isWordChar(c) {
+			name = strings.TrimSuffix(name, author)
+			for len(name) > 0 && !isWordChar(name[len(name)-1]) {
+				name = name[0 : len(name)-1]
+			}
+		}
+	}
+	return name
+}
+
 var BookTitleFormatters = map[string]StringFormatter{
 	// removes all leading/trailing whitespace
 	"trimspace": func(name string, book *booklist.Book) string {
@@ -55,15 +79,8 @@ var BookTitleFormatters = map[string]StringFormatter{
 		if book.Author == nil || len(name) < len(book.Author.Name)+1 {
 			return name
 		}
-		if strings.HasPrefix(name, book.Author.Name) {
-			c := name[len(book.Author.Name)]
-			if isWordChar(c) {
-				name = strings.TrimPrefix(name, book.Author.Name)
-				for len(name) > 0 && isWordChar(name[0]) {
-					name = name[1:]
-				}
-			}
-		}
+		name = safeStripAuthor(name, book.Author.Name)
+		name = safeStripAuthor(name, util.LastNameFirst(book.Author.Name))
 		return name
 	},
 
