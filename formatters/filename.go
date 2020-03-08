@@ -33,6 +33,7 @@ func uniqueStrings(sl []string) []string {
 
 var FilenameFormatters = map[string]FilenameFormatter{
 
+	// Extracts author name from folder, book title from filename.
 	// May be enabled if PDFs are organized by folders as in: /foo/bar/Author Name/Book Title.pdf
 	"authorfolders": func(filename string, book *booklist.Book) {
 		parent := filepath.Dir(filename)
@@ -74,8 +75,6 @@ var FilenameFormatters = map[string]FilenameFormatter{
 			book.Title = filename
 		}
 	},
-
-
 
 }
 

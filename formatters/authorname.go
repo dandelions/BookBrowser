@@ -21,8 +21,11 @@ var AuthorNameFormatters = map[string]StringFormatter{
 			return name
 		}
 	},
+
+	// converts "first last" or "First last" into "First Last"
 	"case": func(name string, book *booklist.Book) string {
-		if name == strings.ToLower(name) {
+		ln := strings.ToLower(name)
+		if name == strings.ToLower(ln) || name == ucFirst(ln) {
 			name = ucWords(name)
 		}
 		return name
