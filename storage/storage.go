@@ -74,6 +74,7 @@ func (s *Storage) setupSchema() error {
 	description TEXT NOT NULL,
 	isbn VARCHAR(16) NOT NULL,
 	publishdate INTEGER NOT NULL,
+	importdate INTEGER NOT NULL,
 	authorid INTEGER NOT NULL,
 	publisherid INTEGER,
 	seriesid INTEGER,

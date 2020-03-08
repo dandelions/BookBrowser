@@ -19,6 +19,7 @@ type Book struct {
 	SeriesIndex float64
 	ISBN        string
 	PublishDate time.Time
+	ImportDate  time.Time
 
 	SeriesID    int
 	AuthorID    int

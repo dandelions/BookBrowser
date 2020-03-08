@@ -506,7 +506,7 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request, p httprout
 }
 
 func (s *Server) handleBooks(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "id", false)
+	userSortKey, userSortAsc := parseUserSort(r.URL.Query().Get("sort"), "importdate", false)
 
 	query := storage.NewQuery().SortedBy(userSortKey, userSortAsc)
 	total, err := s.storage.Books.Count(query)

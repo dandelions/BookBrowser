@@ -31,23 +31,23 @@ var bookFields = struct {
 
 	insert func(stmt *sql.Stmt, book *booklist.Book) (sql.Result, error)
 	update func(stmt *sql.Stmt, book *booklist.Book) (sql.Result, error)
-	scan   func(rows *sql.Rows, book *booklist.Book, modtime *int64, pubDate *int64) error
+	scan   func(rows *sql.Rows, book *booklist.Book, modtime *int64, pubDate *int64, importDate *int64) error
 }{
 	table: "books",
 	
 	// id FIRST in columns
-	columns: []string{"id", "pathname", "filesize", "filemtime", "hash", "hascover", "title", "description", "isbn", "publishdate", "authorid", "publisherid", "seriesid", "seriesindex"},
-	scan: func(rows *sql.Rows, book *booklist.Book, modTime *int64, pubDate *int64) error {
+	columns: []string{"id", "pathname", "filesize", "filemtime", "hash", "hascover", "title", "description", "isbn", "publishdate", "importdate", "authorid", "publisherid", "seriesid", "seriesindex"},
+	scan: func(rows *sql.Rows, book *booklist.Book, modTime *int64, pubDate *int64, importDate *int64) error {
 		// id FIRST in scan
-		return rows.Scan(&book.ID, &book.FilePath, &book.FileSize, modTime, &book.Hash, &book.HasCover, &book.Title, &book.Description, &book.ISBN, pubDate, &book.AuthorID, &book.PublisherID, &book.SeriesID, &book.SeriesIndex)
+		return rows.Scan(&book.ID, &book.FilePath, &book.FileSize, modTime, &book.Hash, &book.HasCover, &book.Title, &book.Description, &book.ISBN, pubDate, importDate, &book.AuthorID, &book.PublisherID, &book.SeriesID, &book.SeriesIndex)
 	},
 	insert: func(stmt *sql.Stmt, book *booklist.Book) (sql.Result, error) {
 		// id OMITTED in insert
-		return stmt.Exec(book.FilePath, book.FileSize, book.ModTime.Unix(), book.Hash, book.HasCover, book.Title, book.Description, book.ISBN, book.PublishDate.Unix(), book.AuthorID, book.PublisherID, book.SeriesID, book.SeriesIndex)
+		return stmt.Exec(book.FilePath, book.FileSize, book.ModTime.Unix(), book.Hash, book.HasCover, book.Title, book.Description, book.ISBN, book.PublishDate.Unix(), book.ImportDate.Unix(), book.AuthorID, book.PublisherID, book.SeriesID, book.SeriesIndex)
 	},
 	update: func(stmt *sql.Stmt, book *booklist.Book) (sql.Result, error) {
 		// id LAST in update
-		return stmt.Exec(book.FilePath, book.FileSize, book.ModTime.Unix(), book.Hash, book.HasCover, book.Title, book.Description, book.ISBN, book.PublishDate.Unix(), book.AuthorID, book.PublisherID, book.SeriesID, book.SeriesIndex, book.ID)
+		return stmt.Exec(book.FilePath, book.FileSize, book.ModTime.Unix(), book.Hash, book.HasCover, book.Title, book.Description, book.ISBN, book.PublishDate.Unix(), book.ImportDate.Unix(), book.AuthorID, book.PublisherID, book.SeriesID, book.SeriesIndex, book.ID)
 	},
 }
 
@@ -160,16 +160,20 @@ func (a *BookStorage) parseRows(rows *sql.Rows, deps bool) ([]*booklist.Book, er
 		authorIDs, publisherIDs, seriesIDs = make(map[int]struct{}), make(map[int]struct{}), make(map[int]struct{})
 	}
 
-	var pubDate int64
-	var modTime int64
+	var (
+		pubDate int64
+		modTime int64
+		importDate int64
+	)
 	defer rows.Close()
 	for rows.Next() {
 		book := &booklist.Book{}
-		if err := bookFields.scan(rows, book, &modTime, &pubDate); err != nil {
+		if err := bookFields.scan(rows, book, &modTime, &pubDate, &importDate); err != nil {
 			return nil, err
 		}
 		book.PublishDate = time.Unix(pubDate, 0)
 		book.ModTime = time.Unix(modTime,0)
+		book.ImportDate = time.Unix(importDate, 0)
 		books = append(books, book)
 		if deps {
 			if _, exists := seriesIDs[book.SeriesID]; !exists {
