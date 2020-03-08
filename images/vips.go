@@ -4,11 +4,13 @@
 // so it's disabled by default. Gah.
 package images
 
+/*
+// Commented out so that gomod doesn't pull in a ton of unnecessary dependencies.
 import (
 	"io"
 	"gopkg.in/h2non/bimg.v1"
 	"io/ioutil"
-	)
+)
 
 type encoder struct {
 	r io.Reader
@@ -62,3 +64,4 @@ func init() {
 	bimg.VipsCacheSetMax(0)
 	bimg.VipsCacheSetMaxMem(0)
 }
+*/
