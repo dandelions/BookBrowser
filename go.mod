@@ -1,4 +1,4 @@
-module github.com/geek1011/BookBrowser
+module github.com/sblinch/BookBrowser
 
 go 1.13
 
@@ -11,6 +11,7 @@ require (
 	github.com/geek1011/kepubify v2.3.2-0.20190207015944-d08efa025c00+incompatible
 	github.com/gobuffalo/packr v1.13.1
 	github.com/julienschmidt/httprouter v1.1.1-0.20170430222011-975b5c4c7c21
+	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/mattn/go-zglob v0.0.0-20170124115757-95345c4e1c0e
 	github.com/moraes/isbn v0.0.0-20151007102746-e6388fb1bfd5
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
