@@ -11,7 +11,6 @@ import (
 	"github.com/sblinch/BookBrowser/formats"
 	"github.com/sblinch/BookBrowser/formatters"
 	"github.com/pkg/errors"
-	"centova.com/pdfmeta"
 )
 
 type pdf struct {
@@ -62,7 +61,7 @@ func load(filename string) (bi formats.BookInfo, ferr error) {
 
 	formatters.ApplyFilename(filename, p.book)
 
-	pdf := pdfmeta.NewPDFMeta()
+	pdf := NewPDFMeta()
 	meta, err := pdf.ParseFile(filename)
 	if meta != nil {
 		if meta.Author != "" {
