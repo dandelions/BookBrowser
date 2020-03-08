@@ -15,10 +15,12 @@ import (
 	"github.com/sblinch/BookBrowser/formats"
 	"github.com/sblinch/BookBrowser/indexer"
 	"github.com/sblinch/BookBrowser/public"
-	//"github.com/geek1011/kepubify/kepub"
+	"github.com/sblinch/BookBrowser/storage"
+	"github.com/geek1011/kepubify/kepub"
 	"github.com/julienschmidt/httprouter"
 	"github.com/unrolled/render"
-	"github.com/sblinch/BookBrowser/storage"
+	"io/ioutil"
+	"net/url"
 )
 
 // Server is a BookBrowser server.
@@ -237,11 +239,9 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 	bid := p.ByName("filename")
 	bid = strings.Replace(strings.Replace(bid, filepath.Ext(bid), "", 1), ".kepub", "", -1)
 	iskepub := false
-	/*
 	if strings.HasSuffix(p.ByName("filename"), ".kepub.epub") {
 		iskepub = true
 	}
-	*/
 
 	bl, err := s.storage.Books.Query(storage.NewQuery().Filtered("id", bid, true))
 	if err != nil || len(bl) == 0 {
@@ -274,7 +274,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 		if err != nil {
 			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
 		}
-	} /*else {
+	} else {
 		if b.FileType() != "epub" {
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, "Not found")
@@ -310,7 +310,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, p httpro
 		if err != nil {
 			log.Printf("Error handling request for %s: %s\n", r.URL.Path, err)
 		}
-	}*/
+	}
 }
 
 func (s *Server) internalError(w http.ResponseWriter, err error) {
